@@ -13,10 +13,10 @@ Chrome extension that overlays your self-hosted Statistics for Strava routes on:
 - Clicking a route opens a popup with activity details and links
 - Toggles overlay on/off from the extension popup
 - Lets the user configure route color, opacity, and width
-- Supports filtering by `filterables.sportType` (checkbox selection)
+- Supports filtering by high-level categories (`Ride`, `Walk`, `Water`, `Winter`)
 - Automatically excludes virtual activities (`VirtualRide`, `VirtualRun`)
 - Supports both map engines used by target sites:
-  - `gpx.studio` (MapLibre GL)
+  - `gpx.studio` (MapLibre GL JS)
   - `studio.wanderstories.space` (Mapbox GL JS)
 
 Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`):
@@ -52,14 +52,13 @@ Style/filter examples:
 - Color: `#00bcd4`
 - Opacity: `0.2`
 - Width: `3`
-- Sport filter: check one or more sport types (for example `Run`, `Ride`, `EBikeRide`)
+- Sport filter: check one or more categories (for example `Ride` includes road, gravel, MTB, e-bike)
 
 ## Notes
 
 - The extension uses a background service worker to fetch endpoints and avoid page-level CORS limitations.
 - Endpoint and toggle state are stored with `chrome.storage.sync`.
 - Extension permissions include broad `http://*/*` and `https://*/*` host access so users can point to any self-hosted endpoint URL.
-- On HTTPS map pages, HTTP Statistics-for-Strava activity pages cannot be embedded in iframes due to browser mixed-content rules; the extension falls back to opening them in a new tab.
 
 ## Troubleshooting
 

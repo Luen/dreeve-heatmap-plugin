@@ -4,7 +4,6 @@
         ready: false,
         overlayApplied: false,
         activePopupEl: null,
-        activeIframeModalEl: null,
         clickHandler: null,
         mouseEnterHandler: null,
         mouseLeaveHandler: null,
@@ -79,10 +78,6 @@
         if (STATE.activePopupEl) {
             STATE.activePopupEl.remove()
             STATE.activePopupEl = null
-        }
-        if (STATE.activeIframeModalEl) {
-            STATE.activeIframeModalEl.remove()
-            STATE.activeIframeModalEl = null
         }
         if (STATE.clickHandler) {
             STATE.map.off('click', HITBOX_LAYER_ID, STATE.clickHandler)
@@ -168,12 +163,22 @@
             .replaceAll("'", '&#39;')
     }
 
+    function decodeHtmlEntities(value) {
+        const text = String(value || '')
+        if (!text.includes('&')) {
+            return text
+        }
+        const parser = document.createElement('textarea')
+        parser.innerHTML = text
+        return parser.value
+    }
+
     function buildPopupHtml(properties) {
-        const activityId = escapeHtml(properties.activityId)
-        const name = escapeHtml(properties.name)
-        const distance = escapeHtml(properties.distance)
-        const startDate = escapeHtml(properties.startDate)
-        const sportType = escapeHtml(properties.sportType)
+        const activityId = escapeHtml(decodeHtmlEntities(properties.activityId))
+        const name = escapeHtml(decodeHtmlEntities(properties.name))
+        const distance = escapeHtml(decodeHtmlEntities(properties.distance))
+        const startDate = escapeHtml(decodeHtmlEntities(properties.startDate))
+        const sportType = escapeHtml(decodeHtmlEntities(properties.sportType))
         const activityUrl = String(properties.activityUrl || '').trim()
         const stravaUrl = String(properties.stravaUrl || '').trim()
 
@@ -187,7 +192,7 @@
             links += `<div style="margin-bottom:4px;"><a href="${escapeHtml(stravaUrl)}" target="_blank" rel="noopener noreferrer" style="color:#60a5fa; text-decoration:underline; font-weight:600; cursor:pointer;">Open in Strava</a></div>`
         }
         if (activityUrl) {
-            links += `<div><a href="#" data-strava-iframe-url="${escapeHtml(activityUrl)}" style="color:#60a5fa; text-decoration:underline; font-weight:600; cursor:pointer;">Open in Statistics for Strava</a></div>`
+            links += `<div><a href="${escapeHtml(activityUrl)}" target="_blank" rel="noopener noreferrer" style="color:#60a5fa; text-decoration:underline; font-weight:600; cursor:pointer;">Open in Statistics for Strava</a></div>`
         }
 
         return `
@@ -250,100 +255,10 @@
                 }
                 return
             }
-
-            if (
-                target &&
-                target instanceof HTMLElement &&
-                target.dataset.stravaIframeUrl
-            ) {
-                event.preventDefault()
-                showIframeModal(target.dataset.stravaIframeUrl)
-            }
         })
 
         container.appendChild(popup)
         STATE.activePopupEl = popup
-    }
-
-    function showIframeModal(url) {
-        if (!url) {
-            return
-        }
-
-        // Browsers block HTTP iframes inside HTTPS pages (mixed content).
-        // Fallback to a new tab in that case.
-        const isHttpsPage = window.location.protocol === 'https:'
-        const isHttpUrl = /^http:\/\//i.test(url)
-        if (isHttpsPage && isHttpUrl) {
-            window.open(url, '_blank', 'noopener,noreferrer')
-            return
-        }
-
-        if (STATE.activeIframeModalEl) {
-            STATE.activeIframeModalEl.remove()
-            STATE.activeIframeModalEl = null
-        }
-
-        const overlay = document.createElement('div')
-        overlay.style.position = 'fixed'
-        overlay.style.inset = '0'
-        overlay.style.background = 'rgba(0, 0, 0, 0.65)'
-        overlay.style.zIndex = '2147483646'
-        overlay.style.display = 'flex'
-        overlay.style.alignItems = 'center'
-        overlay.style.justifyContent = 'center'
-        overlay.style.padding = '20px'
-
-        const frameWrap = document.createElement('div')
-        frameWrap.style.position = 'relative'
-        frameWrap.style.width = 'min(1100px, 95vw)'
-        frameWrap.style.height = 'min(800px, 90vh)'
-        frameWrap.style.background = '#0b1220'
-        frameWrap.style.border = '1px solid #374151'
-        frameWrap.style.borderRadius = '10px'
-        frameWrap.style.overflow = 'hidden'
-        frameWrap.style.boxShadow = '0 16px 48px rgba(0,0,0,0.45)'
-
-        const close = document.createElement('button')
-        close.textContent = 'Close'
-        close.style.position = 'absolute'
-        close.style.top = '10px'
-        close.style.right = '10px'
-        close.style.zIndex = '2'
-        close.style.border = 'none'
-        close.style.borderRadius = '6px'
-        close.style.padding = '6px 10px'
-        close.style.background = '#1f2937'
-        close.style.color = '#f9fafb'
-        close.style.cursor = 'pointer'
-
-        const iframe = document.createElement('iframe')
-        iframe.src = url
-        iframe.style.width = '100%'
-        iframe.style.height = '100%'
-        iframe.style.border = '0'
-        iframe.referrerPolicy = 'no-referrer'
-
-        close.addEventListener('click', () => {
-            overlay.remove()
-            if (STATE.activeIframeModalEl === overlay) {
-                STATE.activeIframeModalEl = null
-            }
-        })
-        overlay.addEventListener('click', (event) => {
-            if (event.target === overlay) {
-                overlay.remove()
-                if (STATE.activeIframeModalEl === overlay) {
-                    STATE.activeIframeModalEl = null
-                }
-            }
-        })
-
-        frameWrap.appendChild(close)
-        frameWrap.appendChild(iframe)
-        overlay.appendChild(frameWrap)
-        document.body.appendChild(overlay)
-        STATE.activeIframeModalEl = overlay
     }
 
     function bindLayerInteractions() {

@@ -26,25 +26,93 @@ const BRIDGE_EVENT_REQUEST = 'STRAVA_OVERLAY_REQUEST'
 const BRIDGE_EVENT_RESPONSE = 'STRAVA_OVERLAY_RESPONSE'
 const BRIDGE_TIMEOUT_MS = 7000
 const EXCLUDED_SPORT_TYPES = new Set(['VirtualRide', 'VirtualRun'])
+const SPORT_CATEGORY_MAP = {
+    Ride: new Set([
+        'Ride',
+        'EBikeRide',
+        'GravelRide',
+        'MountainBikeRide',
+        'Handcycle',
+        'Velomobile',
+    ]),
+    Walk: new Set(['Walk', 'Hike', 'Run', 'TrailRun']),
+    Water: new Set([
+        'Swim',
+        'OpenWaterSwim',
+        'Kayaking',
+        'Canoeing',
+        'Rowing',
+        'StandUpPaddling',
+        'Surfing',
+        'Kitesurf',
+        'Windsurf',
+        'Sail',
+    ]),
+    Winter: new Set([
+        'AlpineSki',
+        'BackcountrySki',
+        'NordicSki',
+        'Snowboard',
+        'Snowshoe',
+        'IceSkate',
+    ]),
+}
 let bridgeInjected = false
 
-function parseSportTypes(rawValue) {
-    if (!rawValue) {
-        return new Set()
+function getCategoryForSportType(sportType) {
+    const normalizedType = String(sportType || '').trim()
+    for (const [category, mappedTypes] of Object.entries(SPORT_CATEGORY_MAP)) {
+        if (mappedTypes.has(normalizedType)) {
+            return category
+        }
+    }
+    return ''
+}
+
+function isSportTypeInSelectedCategories(sportType, selectedCategories) {
+    const normalizedType = String(sportType || '').trim()
+    if (!normalizedType) {
+        return false
     }
 
-    if (Array.isArray(rawValue)) {
-        return new Set(
-            rawValue.map((item) => String(item).trim()).filter(Boolean),
-        )
+    const directCategory = getCategoryForSportType(normalizedType)
+    if (directCategory && selectedCategories.has(directCategory)) {
+        return true
     }
 
-    return new Set(
-        String(rawValue)
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean),
-    )
+    // Dev-friendly fallback logic for evolving Strava ride variants:
+    // if user selected Ride, include any non-virtual *Ride type.
+    if (
+        selectedCategories.has('Ride') &&
+        /Ride$/i.test(normalizedType) &&
+        !EXCLUDED_SPORT_TYPES.has(normalizedType)
+    ) {
+        return true
+    }
+
+    return false
+}
+
+function parseSelectedCategories(rawValue) {
+    const validCategories = new Set(Object.keys(SPORT_CATEGORY_MAP))
+    const selected = new Set()
+
+    if (!Array.isArray(rawValue)) {
+        return selected
+    }
+
+    for (const value of rawValue) {
+        const normalized = String(value).trim()
+        if (!normalized) {
+            continue
+        }
+
+        if (validCategories.has(normalized)) {
+            selected.add(normalized)
+        }
+    }
+
+    return selected
 }
 
 function normalizeStyle(style = {}) {
@@ -82,7 +150,13 @@ function resolveActivityUrl(activityUrl, endpoint) {
     if (!raw) {
         return ''
     }
+
     try {
+        const endpointUrl = new URL(endpoint)
+        if (raw.includes('/activity/')) {
+            const activityPath = raw.startsWith('/') ? raw : `/${raw}`
+            return `${endpointUrl.origin}/activities#${activityPath}`
+        }
         return new URL(raw, endpoint).toString()
     } catch {
         return ''
@@ -94,8 +168,13 @@ function normalizeRoutes(payload, filters = {}) {
         throw new Error('Expected routes payload to be an array.')
     }
 
-    const allowedSportTypes = parseSportTypes(filters.sportTypes)
-    const shouldFilterBySport = allowedSportTypes.size > 0
+    const selectedCategories = parseSelectedCategories(filters.sportTypes)
+    const shouldFilterByCategory = selectedCategories.size > 0
+    const allCategories = Object.keys(SPORT_CATEGORY_MAP)
+    const allCategoriesSelected = allCategories.every((category) =>
+        selectedCategories.has(category),
+    )
+    const applyCategoryFilter = shouldFilterByCategory && !allCategoriesSelected
 
     const routes = []
     for (const item of payload) {
@@ -104,10 +183,13 @@ function normalizeRoutes(payload, filters = {}) {
         }
 
         const sportType = String(item?.filterables?.sportType || '').trim()
-        if (EXCLUDED_SPORT_TYPES.has(sportType)) {
+        if (applyCategoryFilter && EXCLUDED_SPORT_TYPES.has(sportType)) {
             continue
         }
-        if (shouldFilterBySport && !allowedSportTypes.has(sportType)) {
+        if (
+            applyCategoryFilter &&
+            !isSportTypeInSelectedCategories(sportType, selectedCategories)
+        ) {
             continue
         }
 

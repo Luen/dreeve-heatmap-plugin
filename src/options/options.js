@@ -7,13 +7,10 @@ const STORAGE_KEYS = {
 }
 
 const SPORT_TYPE_OPTIONS = [
-    'Run',
-    'Ride',
-    'EBikeRide',
-    'Walk',
-    'Hike',
-    'TrailRun',
-    'MountainBikeRide',
+    { value: 'Ride', label: 'Ride' },
+    { value: 'Walk', label: 'Walk' },
+    { value: 'Water', label: 'Water' },
+    { value: 'Winter', label: 'Winter' },
 ]
 
 const endpointInput = document.getElementById('endpoint')
@@ -56,18 +53,23 @@ async function init() {
 }
 
 function normalizeSportTypes(rawValue) {
-    if (Array.isArray(rawValue)) {
-        return rawValue.map((item) => String(item).trim()).filter(Boolean)
-    }
-
-    if (!rawValue) {
+    const allowed = new Set(SPORT_TYPE_OPTIONS.map((option) => option.value))
+    if (!Array.isArray(rawValue)) {
         return []
     }
 
-    return String(rawValue)
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
+    const normalized = new Set()
+    for (const value of rawValue) {
+        const item = String(value).trim()
+        if (!item) {
+            continue
+        }
+        if (allowed.has(item)) {
+            normalized.add(item)
+        }
+    }
+
+    return [...normalized]
 }
 
 function renderSportTypeCheckboxes(rawValue) {
@@ -75,13 +77,13 @@ function renderSportTypeCheckboxes(rawValue) {
     sportTypesGroup.innerHTML = ''
 
     for (const option of SPORT_TYPE_OPTIONS) {
-        const id = `sportTypeOption-${option}`
+        const id = `sportTypeOption-${option.value}`
         const wrapper = document.createElement('label')
         wrapper.className = 'checkbox-item'
         wrapper.setAttribute('for', id)
-        wrapper.innerHTML = `<input id="${id}" type="checkbox" value="${option}" /> <span>${option}</span>`
+        wrapper.innerHTML = `<input id="${id}" type="checkbox" value="${option.value}" /> <span>${option.label}</span>`
         const checkbox = wrapper.querySelector('input')
-        checkbox.checked = selected.has(option)
+        checkbox.checked = selected.has(option.value)
         sportTypesGroup.appendChild(wrapper)
     }
 }

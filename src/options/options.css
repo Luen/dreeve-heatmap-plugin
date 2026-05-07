@@ -34,6 +34,17 @@ input {
   color: #f8fafc;
 }
 
+.filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.filter-header label {
+  margin: 0;
+}
+
 .checkbox-group {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -55,7 +66,6 @@ input {
 .filter-actions {
   display: flex;
   gap: 8px;
-  margin-bottom: 8px;
 }
 
 .mini-btn {
