@@ -1,6 +1,19 @@
 const STORAGE_KEYS = {
     endpoint: 'routesEndpoint',
     enabled: 'overlayEnabled',
+    lineColor: 'lineColor',
+    lineOpacity: 'lineOpacity',
+    lineWidth: 'lineWidth',
+    sportTypes: 'sportTypes',
+}
+
+const DEFAULT_SETTINGS = {
+    [STORAGE_KEYS.endpoint]: '',
+    [STORAGE_KEYS.enabled]: false,
+    [STORAGE_KEYS.lineColor]: '#ff4500',
+    [STORAGE_KEYS.lineOpacity]: 0.35,
+    [STORAGE_KEYS.lineWidth]: 2,
+    [STORAGE_KEYS.sportTypes]: [],
 }
 
 const OVERLAY_STATE = {
@@ -12,16 +25,89 @@ const OVERLAY_STATE = {
 const BRIDGE_EVENT_REQUEST = 'STRAVA_OVERLAY_REQUEST'
 const BRIDGE_EVENT_RESPONSE = 'STRAVA_OVERLAY_RESPONSE'
 const BRIDGE_TIMEOUT_MS = 7000
+const EXCLUDED_SPORT_TYPES = new Set(['VirtualRide', 'VirtualRun'])
 let bridgeInjected = false
 
-function normalizeRoutes(payload) {
+function parseSportTypes(rawValue) {
+    if (!rawValue) {
+        return new Set()
+    }
+
+    if (Array.isArray(rawValue)) {
+        return new Set(
+            rawValue.map((item) => String(item).trim()).filter(Boolean),
+        )
+    }
+
+    return new Set(
+        String(rawValue)
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+    )
+}
+
+function normalizeStyle(style = {}) {
+    const color = String(
+        style.lineColor || DEFAULT_SETTINGS[STORAGE_KEYS.lineColor],
+    ).trim()
+    const lineColor = /^#[0-9a-fA-F]{6}$/.test(color)
+        ? color
+        : DEFAULT_SETTINGS[STORAGE_KEYS.lineColor]
+
+    const opacity = Number(style.lineOpacity)
+    const lineOpacity = Number.isFinite(opacity)
+        ? Math.max(0.05, Math.min(1, opacity))
+        : DEFAULT_SETTINGS[STORAGE_KEYS.lineOpacity]
+
+    const width = Number(style.lineWidth)
+    const lineWidth = Number.isFinite(width)
+        ? Math.max(1, Math.min(12, width))
+        : DEFAULT_SETTINGS[STORAGE_KEYS.lineWidth]
+
+    return { lineColor, lineOpacity, lineWidth }
+}
+
+function buildStravaActivityUrl(activityId) {
+    const raw = String(activityId || '').trim()
+    const match = raw.match(/(\d+)/)
+    if (!match) {
+        return ''
+    }
+    return `https://www.strava.com/activities/${match[1]}`
+}
+
+function resolveActivityUrl(activityUrl, endpoint) {
+    const raw = String(activityUrl || '').trim()
+    if (!raw) {
+        return ''
+    }
+    try {
+        return new URL(raw, endpoint).toString()
+    } catch {
+        return ''
+    }
+}
+
+function normalizeRoutes(payload, filters = {}) {
     if (!Array.isArray(payload)) {
         throw new Error('Expected routes payload to be an array.')
     }
 
+    const allowedSportTypes = parseSportTypes(filters.sportTypes)
+    const shouldFilterBySport = allowedSportTypes.size > 0
+
     const routes = []
     for (const item of payload) {
         if (!item || !Array.isArray(item.coordinates)) {
+            continue
+        }
+
+        const sportType = String(item?.filterables?.sportType || '').trim()
+        if (EXCLUDED_SPORT_TYPES.has(sportType)) {
+            continue
+        }
+        if (shouldFilterBySport && !allowedSportTypes.has(sportType)) {
             continue
         }
 
@@ -36,9 +122,22 @@ function normalizeRoutes(payload) {
             .map((pair) => [pair[0], pair[1]])
 
         if (points.length >= 2) {
+            const activityId = String(item.id || '').trim()
             routes.push({
-                id: item.id || '',
+                id: activityId,
                 points,
+                metadata: {
+                    activityId,
+                    name: String(item.name || '').trim(),
+                    startDate: String(item.startDate || '').trim(),
+                    distance: String(item.distance || '').trim(),
+                    sportType,
+                    activityUrl: resolveActivityUrl(
+                        item.activityUrl,
+                        filters.endpoint,
+                    ),
+                    stravaUrl: buildStravaActivityUrl(activityId),
+                },
             })
         }
     }
@@ -119,6 +218,12 @@ async function fetchRoutes(endpoint) {
     })
 }
 
+async function getSettings() {
+    return new Promise((resolve) => {
+        chrome.storage.sync.get(DEFAULT_SETTINGS, resolve)
+    })
+}
+
 async function applyOverlay({ endpoint, enabled }) {
     injectBridgeScript()
 
@@ -136,13 +241,25 @@ async function applyOverlay({ endpoint, enabled }) {
         throw new Error('Set a routes endpoint in the extension popup first.')
     }
 
+    const settings = await getSettings()
     const payload = await fetchRoutes(endpoint)
-    const routes = normalizeRoutes(payload)
+    const routes = normalizeRoutes(payload, {
+        sportTypes: settings[STORAGE_KEYS.sportTypes],
+        endpoint,
+    })
     if (!routes.length) {
         throw new Error('No valid routes found in endpoint response.')
     }
 
-    const applyResult = await sendBridgeCommand({ action: 'apply', routes })
+    const applyResult = await sendBridgeCommand({
+        action: 'apply',
+        routes,
+        style: normalizeStyle({
+            lineColor: settings[STORAGE_KEYS.lineColor],
+            lineOpacity: settings[STORAGE_KEYS.lineOpacity],
+            lineWidth: settings[STORAGE_KEYS.lineWidth],
+        }),
+    })
     if (!applyResult.ok) {
         throw new Error(applyResult.error || 'Could not apply overlay.')
     }
@@ -150,18 +267,6 @@ async function applyOverlay({ endpoint, enabled }) {
     OVERLAY_STATE.active = true
     OVERLAY_STATE.routeCount = routes.length
     return { ok: true, enabled: true, routeCount: routes.length }
-}
-
-async function getSettings() {
-    return new Promise((resolve) => {
-        chrome.storage.sync.get(
-            {
-                [STORAGE_KEYS.endpoint]: '',
-                [STORAGE_KEYS.enabled]: false,
-            },
-            resolve,
-        )
-    })
 }
 
 async function handleApplyRequested(endpoint, enabled) {
@@ -203,7 +308,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     })
     return false
 })
-
 ;(async () => {
     injectBridgeScript()
     const settings = await getSettings()

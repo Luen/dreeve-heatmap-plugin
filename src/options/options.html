@@ -16,6 +16,21 @@
 
       <label for="endpoint">Routes endpoint URL</label>
       <input id="endpoint" type="url" />
+      <label for="lineColor">Route color</label>
+      <input id="lineColor" type="color" value="#ff4500" />
+
+      <label for="lineOpacity">Route opacity (0.05 - 1)</label>
+      <input id="lineOpacity" type="number" min="0.05" max="1" step="0.05" value="0.35" />
+
+      <label for="lineWidth">Route width (1 - 12)</label>
+      <input id="lineWidth" type="number" min="1" max="12" step="0.5" value="2" />
+
+      <label>Sport type filter</label>
+      <div class="filter-actions">
+        <button id="sportsSelectAll" type="button" class="mini-btn">Select all</button>
+        <button id="sportsClearAll" type="button" class="mini-btn">Clear</button>
+      </div>
+      <div id="sportTypesGroup" class="checkbox-group"></div>
       <button id="save" type="button">Save settings</button>
       <p id="status"></p>
     </main>

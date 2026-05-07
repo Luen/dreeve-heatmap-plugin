@@ -1,9 +1,29 @@
 const STORAGE_KEYS = {
     endpoint: 'routesEndpoint',
     enabled: 'overlayEnabled',
+    lineColor: 'lineColor',
+    lineOpacity: 'lineOpacity',
+    lineWidth: 'lineWidth',
+    sportTypes: 'sportTypes',
 }
 
+const SPORT_TYPE_OPTIONS = [
+    'Run',
+    'Ride',
+    'EBikeRide',
+    'Walk',
+    'Hike',
+    'TrailRun',
+    'MountainBikeRide',
+]
+
 const endpointInput = document.getElementById('endpoint')
+const lineColorInput = document.getElementById('lineColor')
+const lineOpacityInput = document.getElementById('lineOpacity')
+const lineWidthInput = document.getElementById('lineWidth')
+const sportTypesGroup = document.getElementById('sportTypesGroup')
+const sportsSelectAllButton = document.getElementById('sportsSelectAll')
+const sportsClearAllButton = document.getElementById('sportsClearAll')
 const saveButton = document.getElementById('save')
 const toggleButton = document.getElementById('toggle')
 const statusEl = document.getElementById('status')
@@ -31,6 +51,10 @@ async function getSettings() {
     return chrome.storage.sync.get({
         [STORAGE_KEYS.endpoint]: '',
         [STORAGE_KEYS.enabled]: false,
+        [STORAGE_KEYS.lineColor]: '#ff4500',
+        [STORAGE_KEYS.lineOpacity]: 0.35,
+        [STORAGE_KEYS.lineWidth]: 2,
+        [STORAGE_KEYS.sportTypes]: [],
     })
 }
 
@@ -62,6 +86,29 @@ async function sendApplyToTab(tabId, endpoint, enabled) {
     })
 }
 
+function isSupportedTabUrl(url) {
+    if (!url) {
+        return false
+    }
+    try {
+        const parsed = new URL(url)
+        return (
+            (parsed.hostname === 'gpx.studio' ||
+                parsed.hostname === 'studio.wanderstories.space') &&
+            (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+        )
+    } catch {
+        return false
+    }
+}
+
+async function ensureContentScript(tabId) {
+    await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['src/content-script.js'],
+    })
+}
+
 function updateToggleLabel(enabled) {
     toggleButton.textContent = enabled ? 'Disable' : 'Enable'
     toggleButton.style.background = enabled ? '#ef4444' : '#22c55e'
@@ -70,7 +117,84 @@ function updateToggleLabel(enabled) {
 async function initialize() {
     const settings = await getSettings()
     endpointInput.value = String(settings[STORAGE_KEYS.endpoint] || '')
+    lineColorInput.value = String(settings[STORAGE_KEYS.lineColor] || '#ff4500')
+    lineOpacityInput.value = String(settings[STORAGE_KEYS.lineOpacity] ?? 0.35)
+    lineWidthInput.value = String(settings[STORAGE_KEYS.lineWidth] ?? 2)
+    renderSportTypeCheckboxes(settings[STORAGE_KEYS.sportTypes])
     updateToggleLabel(Boolean(settings[STORAGE_KEYS.enabled]))
+}
+
+function normalizeSportTypes(rawValue) {
+    if (Array.isArray(rawValue)) {
+        return rawValue.map((item) => String(item).trim()).filter(Boolean)
+    }
+
+    if (!rawValue) {
+        return []
+    }
+
+    return String(rawValue)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+}
+
+function renderSportTypeCheckboxes(rawValue) {
+    const selected = new Set(normalizeSportTypes(rawValue))
+    sportTypesGroup.innerHTML = ''
+
+    for (const option of SPORT_TYPE_OPTIONS) {
+        const id = `sportType-${option}`
+        const wrapper = document.createElement('label')
+        wrapper.className = 'checkbox-item'
+        wrapper.setAttribute('for', id)
+        wrapper.innerHTML = `<input id="${id}" type="checkbox" value="${option}" /> <span>${option}</span>`
+        const checkbox = wrapper.querySelector('input')
+        checkbox.checked = selected.has(option)
+        sportTypesGroup.appendChild(wrapper)
+    }
+}
+
+function getSelectedSportTypes() {
+    return Array.from(
+        sportTypesGroup.querySelectorAll('input[type="checkbox"]:checked'),
+    ).map((el) => el.value)
+}
+
+function setAllSportTypeSelection(checked) {
+    for (const checkbox of sportTypesGroup.querySelectorAll(
+        'input[type="checkbox"]',
+    )) {
+        checkbox.checked = checked
+    }
+}
+
+function getStyleAndFilterInputValues() {
+    const lineColor = String(lineColorInput.value || '').trim()
+    const lineOpacity = Number(lineOpacityInput.value)
+    const lineWidth = Number(lineWidthInput.value)
+    const sportTypes = getSelectedSportTypes()
+
+    if (!/^#[0-9a-fA-F]{6}$/.test(lineColor)) {
+        throw new Error('Route color must be a valid hex color.')
+    }
+    if (
+        !Number.isFinite(lineOpacity) ||
+        lineOpacity < 0.05 ||
+        lineOpacity > 1
+    ) {
+        throw new Error('Opacity must be between 0.05 and 1.')
+    }
+    if (!Number.isFinite(lineWidth) || lineWidth < 1 || lineWidth > 12) {
+        throw new Error('Width must be between 1 and 12.')
+    }
+
+    return {
+        lineColor,
+        lineOpacity,
+        lineWidth,
+        sportTypes,
+    }
 }
 
 saveButton.addEventListener('click', async () => {
@@ -80,7 +204,54 @@ saveButton.addEventListener('click', async () => {
         return
     }
 
-    await saveSettings({ [STORAGE_KEYS.endpoint]: endpoint })
+    try {
+        const styleAndFilter = getStyleAndFilterInputValues()
+        const settings = await getSettings()
+        await saveSettings({
+            [STORAGE_KEYS.endpoint]: endpoint,
+            ...styleAndFilter,
+        })
+
+        if (Boolean(settings[STORAGE_KEYS.enabled])) {
+            const tab = await getActiveTab()
+            if (
+                tab &&
+                typeof tab.id === 'number' &&
+                isSupportedTabUrl(tab.url)
+            ) {
+                let response = await sendApplyToTab(tab.id, endpoint, true)
+                if (
+                    !response.ok &&
+                    String(response.error || '')
+                        .toLowerCase()
+                        .includes('receiving end does not exist')
+                ) {
+                    await ensureContentScript(tab.id)
+                    response = await sendApplyToTab(tab.id, endpoint, true)
+                }
+
+                if (!response.ok) {
+                    setStatus(
+                        response.error ||
+                            'Settings saved, but failed to refresh overlay.',
+                        true,
+                    )
+                    return
+                }
+
+                setStatus(
+                    `Settings saved and overlay refreshed (${response.routeCount || 0} routes).`,
+                )
+                return
+            }
+        }
+    } catch (error) {
+        setStatus(
+            error instanceof Error ? error.message : 'Invalid style settings.',
+            true,
+        )
+        return
+    }
     setStatus('Endpoint saved.')
 })
 
@@ -88,6 +259,13 @@ toggleButton.addEventListener('click', async () => {
     const tab = await getActiveTab()
     if (!tab || typeof tab.id !== 'number') {
         setStatus('No active tab found.', true)
+        return
+    }
+    if (!isSupportedTabUrl(tab.url)) {
+        setStatus(
+            'Open gpx.studio or studio.wanderstories.space and try again.',
+            true,
+        )
         return
     }
 
@@ -103,10 +281,12 @@ toggleButton.addEventListener('click', async () => {
         return
     }
 
-    const response = await sendApplyToTab(tab.id, endpoint, nextEnabled)
-    if (!response.ok) {
+    let styleAndFilter
+    try {
+        styleAndFilter = getStyleAndFilterInputValues()
+    } catch (error) {
         setStatus(
-            response.error || 'Failed to apply overlay on this tab.',
+            error instanceof Error ? error.message : 'Invalid style settings.',
             true,
         )
         return
@@ -115,7 +295,36 @@ toggleButton.addEventListener('click', async () => {
     await saveSettings({
         [STORAGE_KEYS.endpoint]: endpoint,
         [STORAGE_KEYS.enabled]: nextEnabled,
+        ...styleAndFilter,
     })
+
+    let response = await sendApplyToTab(tab.id, endpoint, nextEnabled)
+    if (
+        !response.ok &&
+        String(response.error || '')
+            .toLowerCase()
+            .includes('receiving end does not exist')
+    ) {
+        try {
+            await ensureContentScript(tab.id)
+            response = await sendApplyToTab(tab.id, endpoint, nextEnabled)
+        } catch (error) {
+            setStatus(
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to initialize page integration.',
+                true,
+            )
+            return
+        }
+    }
+    if (!response.ok) {
+        setStatus(
+            response.error || 'Failed to apply overlay on this tab.',
+            true,
+        )
+        return
+    }
     updateToggleLabel(nextEnabled)
 
     if (nextEnabled) {
@@ -123,6 +332,14 @@ toggleButton.addEventListener('click', async () => {
     } else {
         setStatus('Overlay disabled.')
     }
+})
+
+sportsSelectAllButton.addEventListener('click', () => {
+    setAllSportTypeSelection(true)
+})
+
+sportsClearAllButton.addEventListener('click', () => {
+    setAllSportTypeSelection(false)
 })
 
 initialize().catch((error) => {

@@ -34,6 +34,38 @@ input {
   color: #f8fafc;
 }
 
+.checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checkbox-item input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mini-btn {
+  margin-top: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: #334155;
+}
+
 button {
   margin-top: 12px;
   padding: 10px 14px;

@@ -10,7 +10,8 @@
   "options_page": "src/options/options.html",
   "permissions": [
     "storage",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "https://gpx.studio/*",
@@ -25,7 +26,9 @@
   "content_scripts": [
     {
       "matches": [
+        "http://gpx.studio/*",
         "https://gpx.studio/*",
+        "http://studio.wanderstories.space/*",
         "https://studio.wanderstories.space/*"
       ],
       "js": [
@@ -40,7 +43,9 @@
         "src/page-bridge.js"
       ],
       "matches": [
+        "http://gpx.studio/*",
         "https://gpx.studio/*",
+        "http://studio.wanderstories.space/*",
         "https://studio.wanderstories.space/*"
       ]
     }

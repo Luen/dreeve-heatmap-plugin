@@ -10,7 +10,11 @@ Chrome extension that overlays your self-hosted Statistics for Strava routes on:
 - Lets the user configure a custom `routes.json` endpoint URL
 - Fetches route data from your Statistics for Strava heatmap API
 - Draws route polylines on the page map
+- Clicking a route opens a popup with activity details and links
 - Toggles overlay on/off from the extension popup
+- Lets the user configure route color, opacity, and width
+- Supports filtering by `filterables.sportType` (checkbox selection)
+- Automatically excludes virtual activities (`VirtualRide`, `VirtualRun`)
 - Supports both map engines used by target sites:
   - `gpx.studio` (MapLibre GL)
   - `studio.wanderstories.space` (Mapbox GL JS)
@@ -38,16 +42,24 @@ Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`
 1. Open either supported site
 2. Open the extension popup
 3. Enter your endpoint, for example:
-   - `http://odroid.fish-agama.ts.net:8095/api/heatmap/routes.json`
+   - `http://localhost:8000/api/heatmap/routes.json`
 4. Click **Save**
 5. Click **Enable** to draw routes
 6. Click **Disable** to remove routes
+
+Style/filter examples:
+
+- Color: `#00bcd4`
+- Opacity: `0.2`
+- Width: `3`
+- Sport filter: check one or more sport types (for example `Run`, `Ride`, `EBikeRide`)
 
 ## Notes
 
 - The extension uses a background service worker to fetch endpoints and avoid page-level CORS limitations.
 - Endpoint and toggle state are stored with `chrome.storage.sync`.
 - Extension permissions include broad `http://*/*` and `https://*/*` host access so users can point to any self-hosted endpoint URL.
+- On HTTPS map pages, HTTP Statistics-for-Strava activity pages cannot be embedded in iframes due to browser mixed-content rules; the extension falls back to opening them in a new tab.
 
 ## Troubleshooting
 
