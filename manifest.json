@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Strava Heatmap Overlay",
+  "description": "Overlay self-hosted Statistics for Strava routes on gpx.studio maps.",
+  "version": "0.1.0",
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Strava Heatmap Overlay"
+  },
+  "options_page": "src/options/options.html",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://gpx.studio/*",
+    "https://studio.wanderstories.space/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://gpx.studio/*",
+        "https://studio.wanderstories.space/*"
+      ],
+      "js": [
+        "src/content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/page-bridge.js"
+      ],
+      "matches": [
+        "https://gpx.studio/*",
+        "https://studio.wanderstories.space/*"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Strava Heatmap Overlay</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Strava Overlay</h1>
+      <label for="endpoint">Routes endpoint</label>
+      <input
+        id="endpoint"
+        type="url"
+        placeholder="https://example.com/api/heatmap/routes.json"
+      />
+      <div class="row">
+        <button id="save" type="button">Save</button>
+        <button id="toggle" type="button">Enable</button>
+      </div>
+      <p id="status" class="status">Configure endpoint and click Enable.</p>
+      <a class="options-link" href="../options/options.html" target="_blank"
+        >Open options</a
+      >
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

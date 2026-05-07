@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Strava Heatmap Overlay Options</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Strava Heatmap Overlay Settings</h1>
+      <p class="hint">
+        Set your self-hosted Statistics for Strava endpoint. Example:
+        <code>http://your-host:8095/api/heatmap/routes.json</code>
+      </p>
+
+      <label for="endpoint">Routes endpoint URL</label>
+      <input id="endpoint" type="url" />
+      <button id="save" type="button">Save settings</button>
+      <p id="status"></p>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
