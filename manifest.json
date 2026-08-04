@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Strava Heatmap Overlay",
-  "description": "Overlay self-hosted Statistics for Strava routes on gpx.studio maps.",
+  "name": "dreeve Heatmap Plugin",
+  "description": "Overlay self-hosted dreeve routes on gpx.studio maps.",
   "version": "0.1.0",
   "action": {
     "default_popup": "src/popup/popup.html",
-    "default_title": "Strava Heatmap Overlay"
+    "default_title": "dreeve Heatmap Plugin"
   },
   "options_page": "src/options/options.html",
   "permissions": [

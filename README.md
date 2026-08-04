@@ -1,6 +1,6 @@
-# stats-for-strava-heatmap-plugin
+# dreeve-heatmap-plugin
 
-Chrome extension that overlays your self-hosted Statistics for Strava routes on:
+Chrome extension that overlays your self-hosted dreeve routes on:
 
 - `https://gpx.studio/*`
 - `https://studio.wanderstories.space/*`
@@ -8,7 +8,7 @@ Chrome extension that overlays your self-hosted Statistics for Strava routes on:
 ## What it does
 
 - Lets the user configure a custom `routes.json` endpoint URL
-- Fetches route data from your Statistics for Strava heatmap API
+- Fetches route data from your dreeve heatmap API
 - Draws route polylines on the page map
 - Clicking a route opens a popup with activity details and links
 - Toggles overlay on/off from the extension popup
