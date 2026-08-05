@@ -23,9 +23,10 @@
             lineOpacity: 0.35,
             lineWidth: 2,
         },
-        activePopupEl: null,
         activeTooltipEl: null,
-        popupOutsideHandler: null,
+        mapHoverHandler: null,
+        mapHoverLeaveHandler: null,
+        mapHoverTarget: null,
         pending: null,
         backgroundBound: false,
         layerAdded: false,
@@ -84,15 +85,6 @@
             .filter(Boolean)
     }
 
-    function escapeHtml(value) {
-        return String(value || '')
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;')
-            .replaceAll('"', '&quot;')
-            .replaceAll("'", '&#39;')
-    }
-
     function decodeHtmlEntities(value) {
         const text = String(value || '')
         if (!text.includes('&')) {
@@ -107,40 +99,6 @@
         const name = decodeHtmlEntities(properties.name)
         const activityId = decodeHtmlEntities(properties.activityId)
         return name || `Activity ${activityId || 'unknown'}`
-    }
-
-    function buildPopupHtml(properties) {
-        const activityId = escapeHtml(decodeHtmlEntities(properties.activityId))
-        const distance = escapeHtml(decodeHtmlEntities(properties.distance))
-        const startDate = escapeHtml(decodeHtmlEntities(properties.startDate))
-        const sportType = escapeHtml(decodeHtmlEntities(properties.sportType))
-        const activityUrl = String(properties.activityUrl || '').trim()
-        const stravaUrl = String(properties.stravaUrl || '').trim()
-
-        const title = escapeHtml(activityTitle(properties))
-        const details = [distance, startDate, sportType]
-            .filter(Boolean)
-            .join(' • ')
-
-        let links = ''
-        if (stravaUrl) {
-            links += `<div style="margin-bottom:4px;"><a href="${escapeHtml(stravaUrl)}" target="_blank" rel="noopener noreferrer" style="color:#60a5fa; text-decoration:underline; font-weight:600; cursor:pointer;">Open in Strava</a></div>`
-        }
-        if (activityUrl) {
-            links += `<div><a href="${escapeHtml(activityUrl)}" target="_blank" rel="noopener noreferrer" style="color:#60a5fa; text-decoration:underline; font-weight:600; cursor:pointer;">Open in dreeve</a></div>`
-        }
-
-        return `
-            <div style="font-family: Arial, sans-serif; font-size: 12px; line-height: 1.4;">
-                <div style="display:flex; justify-content:flex-end; margin-bottom:4px;">
-                    <button data-strava-popup-close="1" style="border:none; background:#1f2937; color:#e5e7eb; border-radius:4px; padding:2px 6px; cursor:pointer;">x</button>
-                </div>
-                <div style="font-weight: 700; margin-bottom: 4px;">${title}</div>
-                <div style="margin-bottom: 4px;">ID: ${activityId || 'unknown'}</div>
-                ${details ? `<div style="margin-bottom: 6px;">${details}</div>` : ''}
-                ${links}
-            </div>
-        `
     }
 
     function getMapContainer() {
@@ -168,29 +126,10 @@
         }
     }
 
-    function unbindPopupOutsideHandler() {
-        if (STATE.popupOutsideHandler) {
-            document.removeEventListener(
-                'pointerdown',
-                STATE.popupOutsideHandler,
-                true,
-            )
-            STATE.popupOutsideHandler = null
-        }
-    }
-
     function hideTooltip() {
         if (STATE.activeTooltipEl) {
             STATE.activeTooltipEl.remove()
             STATE.activeTooltipEl = null
-        }
-    }
-
-    function hidePopup() {
-        unbindPopupOutsideHandler()
-        if (STATE.activePopupEl) {
-            STATE.activePopupEl.remove()
-            STATE.activePopupEl = null
         }
     }
 
@@ -231,74 +170,174 @@
         tooltip.style.top = `${Math.round(clientY - bounds.top + 12)}px`
     }
 
-    function showPopupAt(clientX, clientY, html) {
-        hidePopup()
-        hideTooltip()
+    // Screen-space distance² from point to segment (for passive hover hit-testing)
+    function distSqPointToSegment(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1
+        const dy = y2 - y1
+        const len2 = dx * dx + dy * dy
+        if (len2 === 0) {
+            const ex = px - x1
+            const ey = py - y1
+            return ex * ex + ey * ey
+        }
+        let t = ((px - x1) * dx + (py - y1) * dy) / len2
+        t = Math.max(0, Math.min(1, t))
+        const nx = x1 + t * dx - px
+        const ny = y1 + t * dy - py
+        return nx * nx + ny * ny
+    }
+
+    function getSurfaceNode() {
+        if (!STATE.context) {
+            return null
+        }
+        try {
+            const surface = STATE.context.surface?.()
+            if (surface && typeof surface.node === 'function') {
+                const node = surface.node()
+                if (node) {
+                    return node
+                }
+            }
+        } catch {
+            // fall through
+        }
+        return (
+            document.querySelector('.main-map svg') ||
+            document.querySelector('#id-container svg')
+        )
+    }
+
+    function clientToSurfacePoint(clientX, clientY) {
+        const surface = getSurfaceNode()
+        if (!surface) {
+            return null
+        }
+        const rect = surface.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) {
+            return null
+        }
+        return {
+            x: clientX - rect.left,
+            y: clientY - rect.top,
+        }
+    }
+
+    function findFeatureNearClientPoint(clientX, clientY) {
+        if (
+            !STATE.routesVisible ||
+            !STATE.features.length ||
+            !STATE.context?.projection
+        ) {
+            return null
+        }
+
+        const point = clientToSurfacePoint(clientX, clientY)
+        if (!point) {
+            return null
+        }
+
+        const projection = STATE.context.projection
+        const maxDist = Math.max((STATE.style.lineWidth || 2) + 4, 8)
+        const maxDistSq = maxDist * maxDist
+        let bestFeature = null
+        let bestDistSq = maxDistSq
+
+        for (const feature of STATE.features) {
+            const coords = feature.geometry?.coordinates
+            if (!Array.isArray(coords) || coords.length < 2) {
+                continue
+            }
+
+            let prev = null
+            for (let i = 0; i < coords.length; i += 1) {
+                const coord = coords[i]
+                if (!Array.isArray(coord) || coord.length < 2) {
+                    prev = null
+                    continue
+                }
+                const projected = projection(coord)
+                if (
+                    !projected ||
+                    !Number.isFinite(projected[0]) ||
+                    !Number.isFinite(projected[1])
+                ) {
+                    prev = null
+                    continue
+                }
+                if (prev) {
+                    const distSq = distSqPointToSegment(
+                        point.x,
+                        point.y,
+                        prev[0],
+                        prev[1],
+                        projected[0],
+                        projected[1],
+                    )
+                    if (distSq < bestDistSq) {
+                        bestDistSq = distSq
+                        bestFeature = feature
+                    }
+                }
+                prev = projected
+            }
+        }
+
+        return bestFeature
+    }
+
+    function unbindMapHover() {
+        if (STATE.mapHoverTarget) {
+            if (STATE.mapHoverHandler) {
+                STATE.mapHoverTarget.removeEventListener(
+                    'mousemove',
+                    STATE.mapHoverHandler,
+                )
+            }
+            if (STATE.mapHoverLeaveHandler) {
+                STATE.mapHoverTarget.removeEventListener(
+                    'mouseleave',
+                    STATE.mapHoverLeaveHandler,
+                )
+            }
+        }
+        STATE.mapHoverHandler = null
+        STATE.mapHoverLeaveHandler = null
+        STATE.mapHoverTarget = null
+    }
+
+    function bindMapHover() {
+        unbindMapHover()
         const container = getMapContainer()
         if (!container) {
             return
         }
 
-        ensureContainerRelative(container)
-
-        const bounds = container.getBoundingClientRect()
-        const popup = document.createElement('div')
-        popup.style.position = 'absolute'
-        popup.style.left = `${Math.round(clientX - bounds.left + 10)}px`
-        popup.style.top = `${Math.round(clientY - bounds.top + 10)}px`
-        popup.style.zIndex = '9999'
-        popup.style.maxWidth = '320px'
-        popup.style.background = '#111827'
-        popup.style.color = '#f9fafb'
-        popup.style.border = '1px solid #374151'
-        popup.style.borderRadius = '8px'
-        popup.style.padding = '8px'
-        popup.style.boxShadow = '0 6px 20px rgba(0,0,0,0.35)'
-        popup.style.pointerEvents = 'auto'
-        popup.innerHTML = html
-
-        popup.addEventListener('click', (event) => {
-            const target = event.target
-            if (!(target instanceof Element)) {
+        STATE.mapHoverHandler = (event) => {
+            if (!STATE.routesVisible || !STATE.features.length) {
+                hideTooltip()
                 return
             }
-            if (
-                target instanceof HTMLElement &&
-                target.dataset.stravaPopupClose === '1'
-            ) {
-                hidePopup()
-                return
+            const feature = findFeatureNearClientPoint(
+                event.clientX,
+                event.clientY,
+            )
+            if (feature) {
+                showTooltipAt(
+                    event.clientX,
+                    event.clientY,
+                    feature.properties || {},
+                )
+            } else {
+                hideTooltip()
             }
-            if (target.closest('a[href]')) {
-                hidePopup()
-            }
-        })
-
-        container.appendChild(popup)
-        STATE.activePopupEl = popup
-
-        STATE.popupOutsideHandler = (event) => {
-            if (!STATE.activePopupEl) {
-                return
-            }
-            const target = event.target
-            if (!(target instanceof Element)) {
-                hidePopup()
-                return
-            }
-            if (STATE.activePopupEl.contains(target)) {
-                return
-            }
-            if (target.closest('.dreeve-route')) {
-                return
-            }
-            hidePopup()
         }
-        document.addEventListener(
-            'pointerdown',
-            STATE.popupOutsideHandler,
-            true,
-        )
+        STATE.mapHoverLeaveHandler = () => {
+            hideTooltip()
+        }
+        STATE.mapHoverTarget = container
+        container.addEventListener('mousemove', STATE.mapHoverHandler)
+        container.addEventListener('mouseleave', STATE.mapHoverLeaveHandler)
     }
 
     function linePathFromCoordinates(coordinates, projection) {
@@ -347,7 +386,6 @@
         STATE.routesVisible = shouldShow
         requestRedraw()
         if (!shouldShow) {
-            hidePopup()
             hideTooltip()
         }
     }
@@ -401,7 +439,6 @@
 
             const projection = context.projection
             const style = STATE.style
-            const hitWidth = Math.max(style.lineWidth + 8, 12)
 
             const existing = new Map()
             for (const child of Array.from(group.children)) {
@@ -431,35 +468,7 @@
                     featureGroup = document.createElementNS(SVG_NS, 'g')
                     featureGroup.setAttribute('class', 'dreeve-route')
                     featureGroup.setAttribute('data-feature-id', featureId)
-                    featureGroup.style.cursor = 'pointer'
-                    featureGroup.addEventListener('click', (event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        showPopupAt(
-                            event.clientX,
-                            event.clientY,
-                            buildPopupHtml(feature.properties || {}),
-                        )
-                    })
-                    featureGroup.addEventListener('mousemove', (event) => {
-                        showTooltipAt(
-                            event.clientX,
-                            event.clientY,
-                            feature.properties || {},
-                        )
-                    })
-                    featureGroup.addEventListener('mouseleave', () => {
-                        hideTooltip()
-                    })
                     group.appendChild(featureGroup)
-
-                    const hit = document.createElementNS(SVG_NS, 'path')
-                    hit.setAttribute('class', 'dreeve-hitbox')
-                    hit.setAttribute('fill', 'none')
-                    hit.setAttribute('stroke', 'transparent')
-                    hit.setAttribute('stroke-linecap', 'round')
-                    hit.setAttribute('stroke-linejoin', 'round')
-                    featureGroup.appendChild(hit)
 
                     const line = document.createElementNS(SVG_NS, 'path')
                     line.setAttribute('class', 'dreeve-line')
@@ -469,12 +478,13 @@
                     featureGroup.appendChild(line)
                 }
 
-                const hit = featureGroup.querySelector('.dreeve-hitbox')
-                const line = featureGroup.querySelector('.dreeve-line')
-                if (hit) {
-                    hit.setAttribute('d', d)
-                    hit.setAttribute('stroke-width', String(hitWidth))
+                // Drop legacy hitboxes — routes must not capture pointer events
+                const legacyHit = featureGroup.querySelector('.dreeve-hitbox')
+                if (legacyHit) {
+                    legacyHit.remove()
                 }
+
+                const line = featureGroup.querySelector('.dreeve-line')
                 if (line) {
                     line.setAttribute('d', d)
                     line.setAttribute('stroke', style.lineColor)
@@ -527,11 +537,12 @@
     }
 
     function injectOverlayCss() {
-        if (document.getElementById('dreeve-overlay-style')) {
-            return
+        let style = document.getElementById('dreeve-overlay-style')
+        if (!style) {
+            style = document.createElement('style')
+            style.id = 'dreeve-overlay-style'
+            ;(document.head || document.documentElement).appendChild(style)
         }
-        const style = document.createElement('style')
-        style.id = 'dreeve-overlay-style'
         style.textContent = `
             /* Hide broken/empty tile imagery for the dreeve overlay checkbox layer */
             .layer-overlay[data-layer="${OVERLAY_ID}"] img,
@@ -539,11 +550,12 @@
                 opacity: 0 !important;
                 pointer-events: none !important;
             }
-            g.dreeve-routes {
-                pointer-events: stroke;
+            /* Routes are visual-only — clicks pass through to OSM features below */
+            g.dreeve-routes,
+            g.dreeve-routes * {
+                pointer-events: none !important;
             }
         `
-        ;(document.head || document.documentElement).appendChild(style)
     }
 
     async function registerOverlaySource(context) {
@@ -736,13 +748,14 @@
         }
         await enableOverlayCheckbox(STATE.context)
         STATE.routesVisible = true
+        bindMapHover()
         requestRedraw()
 
         return features.length
     }
 
     async function disableRoutes() {
-        hidePopup()
+        unbindMapHover()
         hideTooltip()
         STATE.features = []
         STATE.overlayApplied = false
@@ -919,7 +932,7 @@
                     STATE.overlayApplied = false
                     STATE.features = []
                     STATE.routesVisible = false
-                    hidePopup()
+                    hideTooltip()
 
                     if (!STATE.ready) {
                         postResponse({
