@@ -60,11 +60,11 @@ async function saveSettings(partial) {
 }
 
 async function sendApplyToTab(tabId, endpoint, enabled) {
-    return new Promise((resolve) => {
-        chrome.tabs.sendMessage(
-            tabId,
-            { type: 'APPLY_OVERLAY', endpoint, enabled },
-            (response) => {
+    const message = { type: 'APPLY_OVERLAY', endpoint, enabled }
+
+    const sendToFrame = (frameId) =>
+        new Promise((resolve) => {
+            const callback = (response) => {
                 if (chrome.runtime.lastError) {
                     resolve({
                         ok: false,
@@ -78,9 +78,39 @@ async function sendApplyToTab(tabId, endpoint, enabled) {
                         error: 'No response from content script.',
                     },
                 )
-            },
-        )
-    })
+            }
+            if (typeof frameId === 'number') {
+                chrome.tabs.sendMessage(tabId, message, { frameId }, callback)
+            } else {
+                chrome.tabs.sendMessage(tabId, message, callback)
+            }
+        })
+
+    // OSM /edit embeds iD in an /id iframe — message that frame when present.
+    try {
+        const frames = await chrome.webNavigation.getAllFrames({ tabId })
+        const idFrame = (frames || []).find((frame) => {
+            try {
+                const parsed = new URL(frame.url)
+                return (
+                    parsed.hostname === 'www.openstreetmap.org' &&
+                    parsed.pathname.startsWith('/id')
+                )
+            } catch {
+                return false
+            }
+        })
+        if (idFrame && typeof idFrame.frameId === 'number') {
+            const iframeResponse = await sendToFrame(idFrame.frameId)
+            if (iframeResponse.ok) {
+                return iframeResponse
+            }
+        }
+    } catch {
+        // Fall through to main-frame messaging (gpx / Wanderstories / direct /id)
+    }
+
+    return sendToFrame(0)
 }
 
 function isSupportedTabUrl(url) {
@@ -89,10 +119,20 @@ function isSupportedTabUrl(url) {
     }
     try {
         const parsed = new URL(url)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return false
+        }
+        if (
+            parsed.hostname === 'gpx.studio' ||
+            parsed.hostname === 'studio.wanderstories.space'
+        ) {
+            return true
+        }
+        // Users open /edit; iD itself runs on /id (often in an iframe).
         return (
-            (parsed.hostname === 'gpx.studio' ||
-                parsed.hostname === 'studio.wanderstories.space') &&
-            (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+            parsed.hostname === 'www.openstreetmap.org' &&
+            (parsed.pathname.startsWith('/edit') ||
+                parsed.pathname.startsWith('/id'))
         )
     } catch {
         return false
@@ -101,7 +141,7 @@ function isSupportedTabUrl(url) {
 
 async function ensureContentScript(tabId) {
     await chrome.scripting.executeScript({
-        target: { tabId },
+        target: { tabId, allFrames: true },
         files: ['src/content-script.js'],
     })
 }
@@ -265,7 +305,7 @@ toggleButton.addEventListener('click', async () => {
     }
     if (!isSupportedTabUrl(tab.url)) {
         setStatus(
-            'Open gpx.studio or studio.wanderstories.space and try again.',
+            'Open gpx.studio, studio.wanderstories.space, or openstreetmap.org/edit and try again.',
             true,
         )
         return

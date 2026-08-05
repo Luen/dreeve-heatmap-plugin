@@ -4,6 +4,7 @@ Chrome extension that overlays your self-hosted [dreeve](https://github.com/dree
 
 - `https://gpx.studio/*`
 - `https://studio.wanderstories.space/*`
+- `https://www.openstreetmap.org/edit` (OpenStreetMap iD editor)
 
 ## What it does
 
@@ -15,9 +16,10 @@ Chrome extension that overlays your self-hosted [dreeve](https://github.com/dree
 - Lets the user configure route color, opacity, and width
 - Supports filtering by high-level categories (`Ride`, `Walk`, `Water`, `Winter`)
 - Automatically excludes virtual activities (`VirtualRide`, `VirtualRun`)
-- Supports both map engines used by target sites:
+- Supports the map engines / editors used by target sites:
   - `gpx.studio` (MapLibre GL JS)
   - `studio.wanderstories.space` (Mapbox GL JS)
+  - OpenStreetMap iD editor (Background → Overlays toggle + SVG route layer)
 
 Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`):
 
@@ -39,6 +41,8 @@ Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`
 
 ## Use
 
+### gpx.studio / Wanderstories
+
 1. Open either supported site
 2. Open the extension popup
 3. Enter your endpoint, for example:
@@ -46,6 +50,14 @@ Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`
 4. Click **Save**
 5. Click **Enable** to draw routes
 6. Click **Disable** to remove routes
+
+### OpenStreetMap iD editor
+
+1. Open the iD editor: [https://www.openstreetmap.org/edit](https://www.openstreetmap.org/edit) (example with map: `https://www.openstreetmap.org/edit#map=16/48.82523/-125.13630`)
+2. Open the extension popup, set your endpoint, click **Save**, then **Enable**
+3. Press **B** (Background settings) and scroll to **Overlays**
+4. Toggle **Dreeve Routes** on/off in the overlays list
+5. Click **Disable** in the extension popup to unload route data and remove the overlay entry
 
 Style/filter examples:
 
@@ -59,9 +71,12 @@ Style/filter examples:
 - The extension uses a background service worker to fetch endpoints and avoid page-level CORS limitations.
 - Endpoint and toggle state are stored with `chrome.storage.sync`.
 - Extension permissions include broad `http://*/*` and `https://*/*` host access so users can point to any self-hosted endpoint URL.
+- On OSM, `/edit` embeds iD in an `/id` iframe; the extension hooks that iframe and messages it from the popup.
+- gpx.studio and Wanderstories behavior is unchanged from previous versions; iD support is additive.
 
 ## Troubleshooting
 
 - If overlay does not appear, click extension **Reload** in `chrome://extensions`, then refresh the target site tab.
+- On iD, reload the `/edit` page after installing or updating the extension so the editor boot hook can run.
 - If the endpoint is unreachable from your browser network, the popup will show a fetch error.
 - For self-signed HTTPS certificates, make sure Chrome already trusts the endpoint in a normal tab.

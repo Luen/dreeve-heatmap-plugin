@@ -25,6 +25,7 @@ const OVERLAY_STATE = {
 const BRIDGE_EVENT_REQUEST = 'STRAVA_OVERLAY_REQUEST'
 const BRIDGE_EVENT_RESPONSE = 'STRAVA_OVERLAY_RESPONSE'
 const BRIDGE_TIMEOUT_MS = 7000
+const BRIDGE_TIMEOUT_ID_MS = 20000
 const EXCLUDED_SPORT_TYPES = new Set(['VirtualRide', 'VirtualRun'])
 const SPORT_CATEGORY_MAP = {
     Ride: new Set([
@@ -58,6 +59,26 @@ const SPORT_CATEGORY_MAP = {
     ]),
 }
 let bridgeInjected = false
+
+function isOsmIdEditorPage() {
+    try {
+        // iD boots on /id (often inside the /edit page iframe)
+        return (
+            window.location.hostname === 'www.openstreetmap.org' &&
+            window.location.pathname.startsWith('/id')
+        )
+    } catch {
+        return false
+    }
+}
+
+function getBridgeScriptPath() {
+    return isOsmIdEditorPage() ? 'src/page-bridge-id.js' : 'src/page-bridge.js'
+}
+
+function getBridgeTimeoutMs() {
+    return isOsmIdEditorPage() ? BRIDGE_TIMEOUT_ID_MS : BRIDGE_TIMEOUT_MS
+}
 
 function getCategoryForSportType(sportType) {
     const normalizedType = String(sportType || '').trim()
@@ -234,7 +255,7 @@ function injectBridgeScript() {
     bridgeInjected = true
 
     const script = document.createElement('script')
-    script.src = chrome.runtime.getURL('src/page-bridge.js')
+    script.src = chrome.runtime.getURL(getBridgeScriptPath())
     script.async = false
     ;(document.documentElement || document.head || document.body).appendChild(
         script,
@@ -268,7 +289,7 @@ function sendBridgeCommand(payload) {
                 ok: false,
                 error: 'Map bridge timed out waiting for page response.',
             })
-        }, BRIDGE_TIMEOUT_MS)
+        }, getBridgeTimeoutMs())
 
         window.addEventListener(BRIDGE_EVENT_RESPONSE, onResponse)
         window.dispatchEvent(
@@ -391,7 +412,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false
 })
 ;(async () => {
+    // Inject immediately: OSM must restore #id-container before iD boots;
+    // MapLibre/Mapbox sites need early constructor hooks.
     injectBridgeScript()
+
     const settings = await getSettings()
     const endpoint = String(settings[STORAGE_KEYS.endpoint] || '').trim()
     const enabled = Boolean(settings[STORAGE_KEYS.enabled])
