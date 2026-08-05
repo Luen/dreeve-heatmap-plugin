@@ -4,9 +4,12 @@
         ready: false,
         overlayApplied: false,
         activePopupEl: null,
+        activeTooltipEl: null,
         clickHandler: null,
+        mapClickHandler: null,
         mouseEnterHandler: null,
         mouseLeaveHandler: null,
+        mouseMoveHandler: null,
     }
 
     const SOURCE_ID = 'strava-routes-source'
@@ -71,17 +74,33 @@
         return false
     }
 
-    function removeOverlay() {
-        if (!STATE.map) {
-            return
+    function hideTooltip() {
+        if (STATE.activeTooltipEl) {
+            STATE.activeTooltipEl.remove()
+            STATE.activeTooltipEl = null
         }
+    }
+
+    function hidePopup() {
         if (STATE.activePopupEl) {
             STATE.activePopupEl.remove()
             STATE.activePopupEl = null
         }
+    }
+
+    function removeOverlay() {
+        if (!STATE.map) {
+            return
+        }
+        hidePopup()
+        hideTooltip()
         if (STATE.clickHandler) {
             STATE.map.off('click', HITBOX_LAYER_ID, STATE.clickHandler)
             STATE.clickHandler = null
+        }
+        if (STATE.mapClickHandler) {
+            STATE.map.off('click', STATE.mapClickHandler)
+            STATE.mapClickHandler = null
         }
         if (STATE.mouseEnterHandler) {
             STATE.map.off(
@@ -98,6 +117,10 @@
                 STATE.mouseLeaveHandler,
             )
             STATE.mouseLeaveHandler = null
+        }
+        if (STATE.mouseMoveHandler) {
+            STATE.map.off('mousemove', HITBOX_LAYER_ID, STATE.mouseMoveHandler)
+            STATE.mouseMoveHandler = null
         }
         if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
             STATE.map.removeLayer(HITBOX_LAYER_ID)
@@ -173,16 +196,21 @@
         return parser.value
     }
 
+    function activityTitle(properties = {}) {
+        const name = decodeHtmlEntities(properties.name)
+        const activityId = decodeHtmlEntities(properties.activityId)
+        return name || `Activity ${activityId || 'unknown'}`
+    }
+
     function buildPopupHtml(properties) {
         const activityId = escapeHtml(decodeHtmlEntities(properties.activityId))
-        const name = escapeHtml(decodeHtmlEntities(properties.name))
         const distance = escapeHtml(decodeHtmlEntities(properties.distance))
         const startDate = escapeHtml(decodeHtmlEntities(properties.startDate))
         const sportType = escapeHtml(decodeHtmlEntities(properties.sportType))
         const activityUrl = String(properties.activityUrl || '').trim()
         const stravaUrl = String(properties.stravaUrl || '').trim()
 
-        const title = name || `Activity ${activityId || 'unknown'}`
+        const title = escapeHtml(activityTitle(properties))
         const details = [distance, startDate, sportType]
             .filter(Boolean)
             .join(' • ')
@@ -208,6 +236,52 @@
         `
     }
 
+    function ensureMapContainerRelative(container) {
+        if (getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative'
+        }
+    }
+
+    function showTooltipAt(point, properties) {
+        if (!STATE.map) {
+            return
+        }
+
+        const container = STATE.map.getContainer()
+        if (!container) {
+            return
+        }
+
+        ensureMapContainerRelative(container)
+
+        let tooltip = STATE.activeTooltipEl
+        if (!tooltip) {
+            tooltip = document.createElement('div')
+            tooltip.style.position = 'absolute'
+            tooltip.style.zIndex = '9998'
+            tooltip.style.maxWidth = '240px'
+            tooltip.style.background = '#111827'
+            tooltip.style.color = '#f9fafb'
+            tooltip.style.border = '1px solid #374151'
+            tooltip.style.borderRadius = '4px'
+            tooltip.style.padding = '3px 8px'
+            tooltip.style.fontFamily = 'Arial, sans-serif'
+            tooltip.style.fontSize = '11px'
+            tooltip.style.lineHeight = '1.3'
+            tooltip.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
+            tooltip.style.pointerEvents = 'none'
+            tooltip.style.whiteSpace = 'nowrap'
+            tooltip.style.overflow = 'hidden'
+            tooltip.style.textOverflow = 'ellipsis'
+            container.appendChild(tooltip)
+            STATE.activeTooltipEl = tooltip
+        }
+
+        tooltip.textContent = activityTitle(properties)
+        tooltip.style.left = `${Math.round(point.x + 12)}px`
+        tooltip.style.top = `${Math.round(point.y + 12)}px`
+    }
+
     function showCustomPopup(lngLat, html) {
         if (!STATE.map) {
             return
@@ -218,13 +292,9 @@
             return
         }
 
-        if (STATE.activePopupEl) {
-            STATE.activePopupEl.remove()
-        }
-
-        if (getComputedStyle(container).position === 'static') {
-            container.style.position = 'relative'
-        }
+        hidePopup()
+        hideTooltip()
+        ensureMapContainerRelative(container)
 
         const point = STATE.map.project(lngLat)
         const popup = document.createElement('div')
@@ -244,16 +314,18 @@
 
         popup.addEventListener('click', (event) => {
             const target = event.target
+            if (!(target instanceof Element)) {
+                return
+            }
             if (
-                target &&
                 target instanceof HTMLElement &&
                 target.dataset.stravaPopupClose === '1'
             ) {
-                popup.remove()
-                if (STATE.activePopupEl === popup) {
-                    STATE.activePopupEl = null
-                }
+                hidePopup()
                 return
+            }
+            if (target.closest('a[href]')) {
+                hidePopup()
             }
         })
 
@@ -272,6 +344,16 @@
 
         STATE.mouseLeaveHandler = () => {
             STATE.map.getCanvas().style.cursor = ''
+            hideTooltip()
+        }
+
+        STATE.mouseMoveHandler = (event) => {
+            const feature = event?.features?.[0]
+            if (!feature) {
+                hideTooltip()
+                return
+            }
+            showTooltipAt(event.point, feature.properties || {})
         }
 
         STATE.clickHandler = (event) => {
@@ -283,9 +365,29 @@
             showCustomPopup(event.lngLat, html)
         }
 
+        STATE.mapClickHandler = (event) => {
+            if (!STATE.activePopupEl) {
+                return
+            }
+            if (event?.originalEvent?.target instanceof Element) {
+                if (STATE.activePopupEl.contains(event.originalEvent.target)) {
+                    return
+                }
+            }
+            const features = STATE.map.queryRenderedFeatures(event.point, {
+                layers: [HITBOX_LAYER_ID],
+            })
+            if (features && features.length > 0) {
+                return
+            }
+            hidePopup()
+        }
+
         STATE.map.on('mouseenter', HITBOX_LAYER_ID, STATE.mouseEnterHandler)
         STATE.map.on('mouseleave', HITBOX_LAYER_ID, STATE.mouseLeaveHandler)
+        STATE.map.on('mousemove', HITBOX_LAYER_ID, STATE.mouseMoveHandler)
         STATE.map.on('click', HITBOX_LAYER_ID, STATE.clickHandler)
+        STATE.map.on('click', STATE.mapClickHandler)
     }
 
     function drawOverlay(routes, style) {

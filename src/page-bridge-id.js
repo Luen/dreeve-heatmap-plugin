@@ -24,6 +24,8 @@
             lineWidth: 2,
         },
         activePopupEl: null,
+        activeTooltipEl: null,
+        popupOutsideHandler: null,
         pending: null,
         backgroundBound: false,
         layerAdded: false,
@@ -101,16 +103,21 @@
         return parser.value
     }
 
+    function activityTitle(properties = {}) {
+        const name = decodeHtmlEntities(properties.name)
+        const activityId = decodeHtmlEntities(properties.activityId)
+        return name || `Activity ${activityId || 'unknown'}`
+    }
+
     function buildPopupHtml(properties) {
         const activityId = escapeHtml(decodeHtmlEntities(properties.activityId))
-        const name = escapeHtml(decodeHtmlEntities(properties.name))
         const distance = escapeHtml(decodeHtmlEntities(properties.distance))
         const startDate = escapeHtml(decodeHtmlEntities(properties.startDate))
         const sportType = escapeHtml(decodeHtmlEntities(properties.sportType))
         const activityUrl = String(properties.activityUrl || '').trim()
         const stravaUrl = String(properties.stravaUrl || '').trim()
 
-        const title = name || `Activity ${activityId || 'unknown'}`
+        const title = escapeHtml(activityTitle(properties))
         const details = [distance, startDate, sportType]
             .filter(Boolean)
             .join(' • ')
@@ -155,23 +162,84 @@
         )
     }
 
+    function ensureContainerRelative(container) {
+        if (getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative'
+        }
+    }
+
+    function unbindPopupOutsideHandler() {
+        if (STATE.popupOutsideHandler) {
+            document.removeEventListener(
+                'pointerdown',
+                STATE.popupOutsideHandler,
+                true,
+            )
+            STATE.popupOutsideHandler = null
+        }
+    }
+
+    function hideTooltip() {
+        if (STATE.activeTooltipEl) {
+            STATE.activeTooltipEl.remove()
+            STATE.activeTooltipEl = null
+        }
+    }
+
     function hidePopup() {
+        unbindPopupOutsideHandler()
         if (STATE.activePopupEl) {
             STATE.activePopupEl.remove()
             STATE.activePopupEl = null
         }
     }
 
-    function showPopupAt(clientX, clientY, html) {
-        hidePopup()
+    function showTooltipAt(clientX, clientY, properties) {
         const container = getMapContainer()
         if (!container) {
             return
         }
 
-        if (getComputedStyle(container).position === 'static') {
-            container.style.position = 'relative'
+        ensureContainerRelative(container)
+
+        let tooltip = STATE.activeTooltipEl
+        if (!tooltip) {
+            tooltip = document.createElement('div')
+            tooltip.style.position = 'absolute'
+            tooltip.style.zIndex = '9998'
+            tooltip.style.maxWidth = '240px'
+            tooltip.style.background = '#111827'
+            tooltip.style.color = '#f9fafb'
+            tooltip.style.border = '1px solid #374151'
+            tooltip.style.borderRadius = '4px'
+            tooltip.style.padding = '3px 8px'
+            tooltip.style.fontFamily = 'Arial, sans-serif'
+            tooltip.style.fontSize = '11px'
+            tooltip.style.lineHeight = '1.3'
+            tooltip.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
+            tooltip.style.pointerEvents = 'none'
+            tooltip.style.whiteSpace = 'nowrap'
+            tooltip.style.overflow = 'hidden'
+            tooltip.style.textOverflow = 'ellipsis'
+            container.appendChild(tooltip)
+            STATE.activeTooltipEl = tooltip
         }
+
+        const bounds = container.getBoundingClientRect()
+        tooltip.textContent = activityTitle(properties)
+        tooltip.style.left = `${Math.round(clientX - bounds.left + 12)}px`
+        tooltip.style.top = `${Math.round(clientY - bounds.top + 12)}px`
+    }
+
+    function showPopupAt(clientX, clientY, html) {
+        hidePopup()
+        hideTooltip()
+        const container = getMapContainer()
+        if (!container) {
+            return
+        }
+
+        ensureContainerRelative(container)
 
         const bounds = container.getBoundingClientRect()
         const popup = document.createElement('div')
@@ -191,17 +259,46 @@
 
         popup.addEventListener('click', (event) => {
             const target = event.target
+            if (!(target instanceof Element)) {
+                return
+            }
             if (
-                target &&
                 target instanceof HTMLElement &&
                 target.dataset.stravaPopupClose === '1'
             ) {
+                hidePopup()
+                return
+            }
+            if (target.closest('a[href]')) {
                 hidePopup()
             }
         })
 
         container.appendChild(popup)
         STATE.activePopupEl = popup
+
+        STATE.popupOutsideHandler = (event) => {
+            if (!STATE.activePopupEl) {
+                return
+            }
+            const target = event.target
+            if (!(target instanceof Element)) {
+                hidePopup()
+                return
+            }
+            if (STATE.activePopupEl.contains(target)) {
+                return
+            }
+            if (target.closest('.dreeve-route')) {
+                return
+            }
+            hidePopup()
+        }
+        document.addEventListener(
+            'pointerdown',
+            STATE.popupOutsideHandler,
+            true,
+        )
     }
 
     function linePathFromCoordinates(coordinates, projection) {
@@ -251,6 +348,7 @@
         requestRedraw()
         if (!shouldShow) {
             hidePopup()
+            hideTooltip()
         }
     }
 
@@ -291,6 +389,7 @@
                 if (group) {
                     group.remove()
                 }
+                hideTooltip()
                 return
             }
 
@@ -341,6 +440,16 @@
                             event.clientY,
                             buildPopupHtml(feature.properties || {}),
                         )
+                    })
+                    featureGroup.addEventListener('mousemove', (event) => {
+                        showTooltipAt(
+                            event.clientX,
+                            event.clientY,
+                            feature.properties || {},
+                        )
+                    })
+                    featureGroup.addEventListener('mouseleave', () => {
+                        hideTooltip()
                     })
                     group.appendChild(featureGroup)
 
@@ -634,6 +743,7 @@
 
     async function disableRoutes() {
         hidePopup()
+        hideTooltip()
         STATE.features = []
         STATE.overlayApplied = false
         STATE.routesVisible = false
