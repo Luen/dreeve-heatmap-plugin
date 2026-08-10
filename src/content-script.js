@@ -174,6 +174,14 @@ function resolveActivityUrl(activityUrl, endpoint) {
 
     try {
         const endpointUrl = new URL(endpoint)
+        // Legacy: /activity/activity-123.html
+        // Current dreeve: /api/fragment/page/activity/activity-123
+        const fragmentMatch = raw.match(
+            /(?:^|\/)api\/fragment\/page\/activity\/([^/?#]+)/i,
+        )
+        if (fragmentMatch) {
+            return `${endpointUrl.origin}/activities#/api/fragment/page/activity/${fragmentMatch[1]}`
+        }
         if (raw.includes('/activity/')) {
             const activityPath = raw.startsWith('/') ? raw : `/${raw}`
             return `${endpointUrl.origin}/activities#${activityPath}`

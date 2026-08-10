@@ -6,9 +6,18 @@ Chrome extension that overlays your self-hosted [dreeve](https://github.com/dree
 - `https://studio.wanderstories.space/*`
 - `https://www.openstreetmap.org/edit` (OpenStreetMap iD editor)
 
+## Requirements
+
+- **dreeve v5.2.0 or newer** ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.2.0))
+- Support for earlier dreeve versions (including the old `/api/heatmap/routes.json` endpoint) has been dropped
+
+Routes are loaded from dreeve’s cache-based fragment API:
+
+`/api/fragment/data/heatmap/routes`
+
 ## What it does
 
-- Lets the user configure a custom `routes.json` endpoint URL
+- Lets the user configure a custom heatmap routes endpoint URL
 - Fetches route data from your dreeve heatmap API
 - Draws route polylines on the page map
 - Clicking a route opens a popup with activity details and links
@@ -46,7 +55,7 @@ Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`
 1. Open either supported site
 2. Open the extension popup
 3. Enter your endpoint, for example:
-   - `http://localhost:8000/api/heatmap/routes.json`
+   - `http://localhost:8000/api/fragment/data/heatmap/routes`
 4. Click **Save**
 5. Click **Enable** to draw routes
 6. Click **Disable** to remove routes
@@ -79,4 +88,5 @@ Style/filter examples:
 - If overlay does not appear, click extension **Reload** in `chrome://extensions`, then refresh the target site tab.
 - On iD, reload the `/edit` page after installing or updating the extension so the editor boot hook can run.
 - If the endpoint is unreachable from your browser network, the popup will show a fetch error.
+- If the endpoint returns HTML instead of JSON, confirm you are on dreeve **v5.2.0+** and using `/api/fragment/data/heatmap/routes`.
 - For self-signed HTTPS certificates, make sure Chrome already trusts the endpoint in a normal tab.
