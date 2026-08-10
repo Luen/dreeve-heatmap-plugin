@@ -38,7 +38,9 @@ function resolveRoutesEndpoint(endpoint) {
 }
 
 function explainJsonParseFailure(rawBody, endpoint) {
-    const sample = String(rawBody || '').trimStart().slice(0, 64)
+    const sample = String(rawBody || '')
+        .trimStart()
+        .slice(0, 64)
     if (sample.startsWith('<!DOCTYPE') || sample.startsWith('<html')) {
         return (
             `Endpoint returned HTML instead of JSON (${endpoint}). ` +

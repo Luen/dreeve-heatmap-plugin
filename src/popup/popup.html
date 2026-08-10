@@ -1,49 +1,72 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>dreeve Heatmap Plugin</title>
-    <link rel="stylesheet" href="popup.css" />
-  </head>
-  <body>
-    <main class="container">
-      <h1>dreeve Overlay</h1>
-      <label for="endpoint">Routes endpoint</label>
-      <input
-        id="endpoint"
-        type="url"
-        placeholder="https://example.com/api/fragment/data/heatmap/routes"
-      />
-      <label for="lineColor">Route color</label>
-      <input id="lineColor" type="color" value="#ff4500" />
-      <div class="row">
-        <div class="field">
-          <label for="lineOpacity">Opacity</label>
-          <input id="lineOpacity" type="number" min="0.05" max="1" step="0.05" value="0.35" />
-        </div>
-        <div class="field">
-          <label for="lineWidth">Width</label>
-          <input id="lineWidth" type="number" min="1" max="12" step="0.5" value="2" />
-        </div>
-      </div>
-      <div class="filter-header">
-        <label>Sport categories filter</label>
-        <div class="filter-actions">
-          <button id="sportsSelectAll" type="button" class="mini-btn">Select all</button>
-          <button id="sportsClearAll" type="button" class="mini-btn">Clear</button>
-        </div>
-      </div>
-      <div id="sportTypesGroup" class="checkbox-group"></div>
-      <div class="row">
-        <button id="save" type="button">Save</button>
-        <button id="toggle" type="button">Enable</button>
-      </div>
-      <p id="status" class="status">Configure endpoint and click Enable.</p>
-      <a class="options-link" href="../options/options.html" target="_blank"
-        >Open options</a
-      >
-    </main>
-    <script type="module" src="popup.js"></script>
-  </body>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>dreeve Heatmap Plugin</title>
+        <link rel="stylesheet" href="popup.css" />
+    </head>
+    <body>
+        <main class="container">
+            <h1>dreeve Overlay</h1>
+            <label for="endpoint">Routes endpoint</label>
+            <input
+                id="endpoint"
+                type="url"
+                placeholder="https://example.com/api/fragment/data/heatmap/routes"
+            />
+            <label for="lineColor">Route color</label>
+            <input id="lineColor" type="color" value="#ff4500" />
+            <div class="row">
+                <div class="field">
+                    <label for="lineOpacity">Opacity</label>
+                    <input
+                        id="lineOpacity"
+                        type="number"
+                        min="0.05"
+                        max="1"
+                        step="0.05"
+                        value="0.35"
+                    />
+                </div>
+                <div class="field">
+                    <label for="lineWidth">Width</label>
+                    <input
+                        id="lineWidth"
+                        type="number"
+                        min="1"
+                        max="12"
+                        step="0.5"
+                        value="2"
+                    />
+                </div>
+            </div>
+            <div class="filter-header">
+                <label>Sport categories filter</label>
+                <div class="filter-actions">
+                    <button id="sportsSelectAll" type="button" class="mini-btn">
+                        Select all
+                    </button>
+                    <button id="sportsClearAll" type="button" class="mini-btn">
+                        Clear
+                    </button>
+                </div>
+            </div>
+            <div id="sportTypesGroup" class="checkbox-group"></div>
+            <div class="row">
+                <button id="save" type="button">Save</button>
+                <button id="toggle" type="button">Enable</button>
+            </div>
+            <p id="status" class="status">
+                Configure endpoint and click Enable.
+            </p>
+            <a
+                class="options-link"
+                href="../options/options.html"
+                target="_blank"
+                >Open options</a
+            >
+        </main>
+        <script type="module" src="popup.js"></script>
+    </body>
 </html>

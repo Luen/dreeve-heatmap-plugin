@@ -400,7 +400,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     handleApplyRequested(
-        Boolean(message.endpoint) ? message.endpoint : '',
+        message.endpoint ? message.endpoint : '',
         Boolean(message.enabled),
     ).then((result) => sendResponse(result))
     return true

@@ -26,18 +26,21 @@ Routes are loaded from dreeve’s cache-based fragment API:
 - Supports filtering by high-level categories (`Ride`, `Walk`, `Water`, `Winter`)
 - Automatically excludes virtual activities (`VirtualRide`, `VirtualRun`)
 - Supports the map engines / editors used by target sites:
-  - `gpx.studio` (MapLibre GL JS)
-  - `studio.wanderstories.space` (Mapbox GL JS)
-  - OpenStreetMap iD editor (Background → Overlays toggle + SVG route layer)
+    - `gpx.studio` (MapLibre GL JS)
+    - `studio.wanderstories.space` (Mapbox GL JS)
+    - OpenStreetMap iD editor (Background → Overlays toggle + SVG route layer)
 
 Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`):
 
 ```json
 [
-  {
-    "id": "activity-123",
-    "coordinates": [[-19.37, 146.64], [-19.38, 146.65]]
-  }
+    {
+        "id": "activity-123",
+        "coordinates": [
+            [-19.37, 146.64],
+            [-19.38, 146.65]
+        ]
+    }
 ]
 ```
 
@@ -48,6 +51,19 @@ Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`
 3. Click **Load unpacked**
 4. Select this repository folder
 
+## Development
+
+Optional tooling for formatting and linting (does not affect the unpacked extension):
+
+```bash
+npm install
+npm run format    # Prettier write
+npm run lint      # ESLint
+npm run check     # format check + lint
+```
+
+Requires **Node.js 20+**.
+
 ## Use
 
 ### gpx.studio / Wanderstories
@@ -55,7 +71,7 @@ Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`
 1. Open either supported site
 2. Open the extension popup
 3. Enter your endpoint, for example:
-   - `http://localhost:8000/api/fragment/data/heatmap/routes`
+    - `http://localhost:8000/api/fragment/data/heatmap/routes`
 4. Click **Save**
 5. Click **Enable** to draw routes
 6. Click **Disable** to remove routes

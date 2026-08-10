@@ -254,7 +254,7 @@ saveButton.addEventListener('click', async () => {
             ...styleAndFilter,
         })
 
-        if (Boolean(settings[STORAGE_KEYS.enabled])) {
+        if (settings[STORAGE_KEYS.enabled]) {
             const tab = await getActiveTab()
             if (
                 tab &&

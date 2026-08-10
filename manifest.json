@@ -1,67 +1,62 @@
 {
-  "manifest_version": 3,
-  "name": "dreeve Heatmap Plugin",
-  "description": "Overlay self-hosted dreeve routes on gpx.studio, Wanderstories, and OpenStreetMap iD editor.",
-  "version": "0.3.0",
-  "action": {
-    "default_popup": "src/popup/popup.html",
-    "default_title": "dreeve Heatmap Plugin"
-  },
-  "options_page": "src/options/options.html",
-  "permissions": [
-    "storage",
-    "tabs",
-    "scripting",
-    "webNavigation"
-  ],
-  "host_permissions": [
-    "https://gpx.studio/*",
-    "https://studio.wanderstories.space/*",
-    "*://www.openstreetmap.org/*",
-    "http://*/*",
-    "https://*/*"
-  ],
-  "background": {
-    "service_worker": "src/background.js",
-    "type": "module"
-  },
-  "content_scripts": [
-    {
-      "matches": ["*://www.openstreetmap.org/id*"],
-      "js": ["src/id/start.js"],
-      "run_at": "document_start",
-      "all_frames": true
+    "manifest_version": 3,
+    "name": "dreeve Heatmap Plugin",
+    "description": "Overlay self-hosted dreeve routes on gpx.studio, Wanderstories, and OpenStreetMap iD editor.",
+    "version": "0.3.0",
+    "action": {
+        "default_popup": "src/popup/popup.html",
+        "default_title": "dreeve Heatmap Plugin"
     },
-    {
-      "matches": [
-        "http://gpx.studio/*",
+    "options_page": "src/options/options.html",
+    "permissions": ["storage", "tabs", "scripting", "webNavigation"],
+    "host_permissions": [
         "https://gpx.studio/*",
-        "http://studio.wanderstories.space/*",
-        "https://studio.wanderstories.space/*"
-      ],
-      "js": ["src/content-script.js"],
-      "run_at": "document_idle"
+        "https://studio.wanderstories.space/*",
+        "*://www.openstreetmap.org/*",
+        "http://*/*",
+        "https://*/*"
+    ],
+    "background": {
+        "service_worker": "src/background.js",
+        "type": "module"
     },
-    {
-      "matches": ["*://www.openstreetmap.org/id*"],
-      "js": ["src/content-script.js"],
-      "run_at": "document_end",
-      "all_frames": true
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["src/page-bridge.js"],
-      "matches": [
-        "http://gpx.studio/*",
-        "https://gpx.studio/*",
-        "http://studio.wanderstories.space/*",
-        "https://studio.wanderstories.space/*"
-      ]
-    },
-    {
-      "resources": ["src/page-bridge-id.js", "src/id/start.js"],
-      "matches": ["*://www.openstreetmap.org/*"]
-    }
-  ]
+    "content_scripts": [
+        {
+            "matches": ["*://www.openstreetmap.org/id*"],
+            "js": ["src/id/start.js"],
+            "run_at": "document_start",
+            "all_frames": true
+        },
+        {
+            "matches": [
+                "http://gpx.studio/*",
+                "https://gpx.studio/*",
+                "http://studio.wanderstories.space/*",
+                "https://studio.wanderstories.space/*"
+            ],
+            "js": ["src/content-script.js"],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": ["*://www.openstreetmap.org/id*"],
+            "js": ["src/content-script.js"],
+            "run_at": "document_end",
+            "all_frames": true
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": ["src/page-bridge.js"],
+            "matches": [
+                "http://gpx.studio/*",
+                "https://gpx.studio/*",
+                "http://studio.wanderstories.space/*",
+                "https://studio.wanderstories.space/*"
+            ]
+        },
+        {
+            "resources": ["src/page-bridge-id.js", "src/id/start.js"],
+            "matches": ["*://www.openstreetmap.org/*"]
+        }
+    ]
 }
