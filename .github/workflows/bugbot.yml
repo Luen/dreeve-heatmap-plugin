@@ -12,30 +12,30 @@
 name: Claude BugBot
 
 on:
-  pull_request:
-    types: [opened, synchronize]
+    pull_request:
+        types: [opened, synchronize]
 
 permissions:
-  contents: read
-  pull-requests: write
+    contents: read
+    pull-requests: write
 
 jobs:
-  bugbot:
-    runs-on: ubuntu-latest
-    if: github.actor != 'dependabot[bot]'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7.0.1
-        with:
-          # Full history enables BugBot's git-history lens (detects silently undone fixes)
-          fetch-depth: 0
+    bugbot:
+        runs-on: ubuntu-latest
+        if: github.actor != 'dependabot[bot]'
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v7.0.1
+              with:
+                  # Full history enables BugBot's git-history lens (detects silently undone fixes)
+                  fetch-depth: 0
 
-      - name: Run Claude BugBot
-        uses: rekpero/claude-bugbot-github-action@v1.0.14
-        with:
-          claude-setup-token: ${{ secrets.CLAUDE_SETUP_TOKEN }}
-          # Optional alternatives / overrides:
-          # anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # model: sonnet
-          # max-budget: '1.00'
-          # github-token: ${{ secrets.GH_PAT }}  # PAT with repo scope if thread resolve fails
+            - name: Run Claude BugBot
+              uses: rekpero/claude-bugbot-github-action@v1.0.14
+              with:
+                  claude-setup-token: ${{ secrets.CLAUDE_SETUP_TOKEN }}
+                  # Optional alternatives / overrides:
+                  # anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+                  # model: sonnet
+                  # max-budget: '1.00'
+                  # github-token: ${{ secrets.GH_PAT }}  # PAT with repo scope if thread resolve fails
