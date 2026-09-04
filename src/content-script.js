@@ -20,12 +20,16 @@ const OVERLAY_STATE = {
     active: false,
     lastError: '',
     routeCount: 0,
+    endpoint: '',
+    sportTypesKey: '',
+    style: null,
 }
 
 const BRIDGE_EVENT_REQUEST = 'STRAVA_OVERLAY_REQUEST'
 const BRIDGE_EVENT_RESPONSE = 'STRAVA_OVERLAY_RESPONSE'
 const BRIDGE_TIMEOUT_MS = 7000
 const BRIDGE_TIMEOUT_ID_MS = 20000
+const NORMALIZE_CHUNK_SIZE = 40
 const EXCLUDED_SPORT_TYPES = new Set(['VirtualRide', 'VirtualRun'])
 const SPORT_CATEGORY_MAP = {
     Ride: new Set([
@@ -136,6 +140,21 @@ function parseSelectedCategories(rawValue) {
     return selected
 }
 
+function sportTypesKey(rawValue) {
+    return [...parseSelectedCategories(rawValue)].sort().join(',')
+}
+
+function stylesEqual(a, b) {
+    if (!a || !b) {
+        return false
+    }
+    return (
+        a.lineColor === b.lineColor &&
+        a.lineOpacity === b.lineOpacity &&
+        a.lineWidth === b.lineWidth
+    )
+}
+
 function normalizeStyle(style = {}) {
     const color = String(
         style.lineColor || DEFAULT_SETTINGS[STORAGE_KEYS.lineColor],
@@ -192,7 +211,17 @@ function resolveActivityUrl(activityUrl, endpoint) {
     }
 }
 
-function normalizeRoutes(payload, filters = {}) {
+function yieldToMain() {
+    return new Promise((resolve) => {
+        setTimeout(resolve, 0)
+    })
+}
+
+/**
+ * Normalize API routes once into GeoJSON-ready [lng, lat] points.
+ * Yields periodically so large payloads do not freeze the content script.
+ */
+async function normalizeRoutes(payload, filters = {}) {
     if (!Array.isArray(payload)) {
         throw new Error('Expected routes payload to be an array.')
     }
@@ -206,7 +235,12 @@ function normalizeRoutes(payload, filters = {}) {
     const applyCategoryFilter = shouldFilterByCategory && !allCategoriesSelected
 
     const routes = []
-    for (const item of payload) {
+    for (let index = 0; index < payload.length; index += 1) {
+        if (index > 0 && index % NORMALIZE_CHUNK_SIZE === 0) {
+            await yieldToMain()
+        }
+
+        const item = payload[index]
         if (!item || !Array.isArray(item.coordinates)) {
             continue
         }
@@ -222,15 +256,21 @@ function normalizeRoutes(payload, filters = {}) {
             continue
         }
 
-        const points = item.coordinates
-            .filter(
-                (pair) =>
-                    Array.isArray(pair) &&
-                    pair.length >= 2 &&
-                    Number.isFinite(pair[0]) &&
-                    Number.isFinite(pair[1]),
-            )
-            .map((pair) => [pair[0], pair[1]])
+        const coordinates = item.coordinates
+        const points = []
+        for (let i = 0; i < coordinates.length; i += 1) {
+            const pair = coordinates[i]
+            if (
+                !Array.isArray(pair) ||
+                pair.length < 2 ||
+                !Number.isFinite(pair[0]) ||
+                !Number.isFinite(pair[1])
+            ) {
+                continue
+            }
+            // API is [lat, lng]; emit GeoJSON [lng, lat] once.
+            points.push([pair[1], pair[0]])
+        }
 
         if (points.length >= 2) {
             const activityId = String(item.id || '').trim()
@@ -308,10 +348,10 @@ function sendBridgeCommand(payload) {
     })
 }
 
-async function fetchRoutes(endpoint) {
+async function fetchRoutes(endpoint, forceRefresh = false) {
     return new Promise((resolve, reject) => {
         chrome.runtime.sendMessage(
-            { type: 'FETCH_ROUTES_JSON', endpoint },
+            { type: 'FETCH_ROUTES_JSON', endpoint, forceRefresh },
             (response) => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message))
@@ -335,7 +375,15 @@ async function getSettings() {
     })
 }
 
-async function applyOverlay({ endpoint, enabled }) {
+function rememberAppliedState(endpoint, sportTypes, style, routeCount) {
+    OVERLAY_STATE.active = true
+    OVERLAY_STATE.routeCount = routeCount
+    OVERLAY_STATE.endpoint = endpoint
+    OVERLAY_STATE.sportTypesKey = sportTypesKey(sportTypes)
+    OVERLAY_STATE.style = style
+}
+
+async function applyOverlay({ endpoint, enabled, forceRefresh = false }) {
     injectBridgeScript()
 
     if (!enabled) {
@@ -345,6 +393,9 @@ async function applyOverlay({ endpoint, enabled }) {
         }
         OVERLAY_STATE.active = false
         OVERLAY_STATE.routeCount = 0
+        OVERLAY_STATE.endpoint = ''
+        OVERLAY_STATE.sportTypesKey = ''
+        OVERLAY_STATE.style = null
         return { ok: true, enabled: false, routeCount: 0 }
     }
 
@@ -353,8 +404,43 @@ async function applyOverlay({ endpoint, enabled }) {
     }
 
     const settings = await getSettings()
-    const payload = await fetchRoutes(endpoint)
-    const routes = normalizeRoutes(payload, {
+    const style = normalizeStyle({
+        lineColor: settings[STORAGE_KEYS.lineColor],
+        lineOpacity: settings[STORAGE_KEYS.lineOpacity],
+        lineWidth: settings[STORAGE_KEYS.lineWidth],
+    })
+    const nextSportKey = sportTypesKey(settings[STORAGE_KEYS.sportTypes])
+    const geometryUnchanged =
+        OVERLAY_STATE.active &&
+        OVERLAY_STATE.endpoint === endpoint &&
+        OVERLAY_STATE.sportTypesKey === nextSportKey
+
+    if (geometryUnchanged && !forceRefresh) {
+        if (stylesEqual(style, OVERLAY_STATE.style)) {
+            return {
+                ok: true,
+                enabled: true,
+                routeCount: OVERLAY_STATE.routeCount,
+            }
+        }
+
+        const styleResult = await sendBridgeCommand({
+            action: 'updateStyle',
+            style,
+        })
+        if (styleResult.ok) {
+            OVERLAY_STATE.style = style
+            return {
+                ok: true,
+                enabled: true,
+                routeCount: OVERLAY_STATE.routeCount,
+            }
+        }
+        // Fall through to full apply if bridge does not support updateStyle yet.
+    }
+
+    const payload = await fetchRoutes(endpoint, forceRefresh)
+    const routes = await normalizeRoutes(payload, {
         sportTypes: settings[STORAGE_KEYS.sportTypes],
         endpoint,
     })
@@ -365,24 +451,24 @@ async function applyOverlay({ endpoint, enabled }) {
     const applyResult = await sendBridgeCommand({
         action: 'apply',
         routes,
-        style: normalizeStyle({
-            lineColor: settings[STORAGE_KEYS.lineColor],
-            lineOpacity: settings[STORAGE_KEYS.lineOpacity],
-            lineWidth: settings[STORAGE_KEYS.lineWidth],
-        }),
+        style,
     })
     if (!applyResult.ok) {
         throw new Error(applyResult.error || 'Could not apply overlay.')
     }
 
-    OVERLAY_STATE.active = true
-    OVERLAY_STATE.routeCount = routes.length
+    rememberAppliedState(
+        endpoint,
+        settings[STORAGE_KEYS.sportTypes],
+        style,
+        routes.length,
+    )
     return { ok: true, enabled: true, routeCount: routes.length }
 }
 
-async function handleApplyRequested(endpoint, enabled) {
+async function handleApplyRequested(endpoint, enabled, forceRefresh = false) {
     try {
-        const result = await applyOverlay({ endpoint, enabled })
+        const result = await applyOverlay({ endpoint, enabled, forceRefresh })
         OVERLAY_STATE.lastError = ''
         return result
     } catch (error) {
@@ -390,6 +476,9 @@ async function handleApplyRequested(endpoint, enabled) {
             error instanceof Error ? error.message : 'Overlay failed.'
         OVERLAY_STATE.active = false
         OVERLAY_STATE.routeCount = 0
+        OVERLAY_STATE.endpoint = ''
+        OVERLAY_STATE.sportTypesKey = ''
+        OVERLAY_STATE.style = null
         return { ok: false, error: OVERLAY_STATE.lastError }
     }
 }
@@ -402,6 +491,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     handleApplyRequested(
         message.endpoint ? message.endpoint : '',
         Boolean(message.enabled),
+        Boolean(message.forceRefresh),
     ).then((result) => sendResponse(result))
     return true
 })
@@ -428,6 +518,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const endpoint = String(settings[STORAGE_KEYS.endpoint] || '').trim()
     const enabled = Boolean(settings[STORAGE_KEYS.enabled])
     if (enabled) {
-        await handleApplyRequested(endpoint, true)
+        await handleApplyRequested(endpoint, true, false)
     }
 })()

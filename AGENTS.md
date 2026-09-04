@@ -8,7 +8,7 @@ Treat this file as living documentation: update it when the stack, scripts, or p
 
 Chrome extension that overlays self-hosted [dreeve](https://github.com/dreeveapp/dreeve) heatmap routes on gpx.studio, studio.wanderstories.space, and the OpenStreetMap iD editor.
 
-Requires **dreeve v5.2.0+**. Routes come from `/api/fragment/data/heatmap/routes`.
+Requires **dreeve v5.2.0+**. Routes come from `/api/internal/fragment/data/heatmap/routes`.
 
 ## Setup and checks
 
@@ -27,7 +27,6 @@ After edits: `npm run format` and `npm run lint:fix` as needed. Code must pass P
 - Keep overlay logic DRY across MapLibre / Mapbox / iD editor adapters.
 - Do not restore dropped support for old dreeve heatmap endpoints.
 - Never commit secrets.
-
 
 ## Pull requests
 

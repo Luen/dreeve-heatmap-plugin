@@ -13,7 +13,7 @@ Chrome extension that overlays your self-hosted [dreeve](https://github.com/dree
 
 Routes are loaded from dreeve’s cache-based fragment API:
 
-`/api/fragment/data/heatmap/routes`
+`/api/internal/fragment/data/heatmap/routes`
 
 ## What it does
 
@@ -71,7 +71,7 @@ Requires **Node.js 20+**.
 1. Open either supported site
 2. Open the extension popup
 3. Enter your endpoint, for example:
-    - `http://localhost:8000/api/fragment/data/heatmap/routes`
+    - `http://localhost:8000/api/internal/fragment/data/heatmap/routes`
 4. Click **Save**
 5. Click **Enable** to draw routes
 6. Click **Disable** to remove routes
@@ -104,5 +104,11 @@ Style/filter examples:
 - If overlay does not appear, click extension **Reload** in `chrome://extensions`, then refresh the target site tab.
 - On iD, reload the `/edit` page after installing or updating the extension so the editor boot hook can run.
 - If the endpoint is unreachable from your browser network, the popup will show a fetch error.
-- If the endpoint returns HTML instead of JSON, confirm you are on dreeve **v5.2.0+** and using `/api/fragment/data/heatmap/routes`.
+- If the endpoint returns HTML instead of JSON, confirm you are on dreeve **v5.2.0+** and using `/api/internal/fragment/data/heatmap/routes`.
 - For self-signed HTTPS certificates, make sure Chrome already trusts the endpoint in a normal tab.
+
+## Performance
+
+- Route payloads are cached in the service worker (memory + `chrome.storage.session`) for about 20 minutes, with HTTP `ETag` / `If-None-Match` when the server supports it.
+- Re-enabling or saving while the overlay is on may reuse the cache; a fresh Enable after Disable still force-refreshes from the network.
+- Style-only changes (color, opacity, width) update the map without re-fetching geometry.

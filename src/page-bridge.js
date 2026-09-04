@@ -10,6 +10,7 @@
         mouseEnterHandler: null,
         mouseLeaveHandler: null,
         mouseMoveHandler: null,
+        style: null,
     }
 
     const SOURCE_ID = 'strava-routes-source'
@@ -17,6 +18,15 @@
     const HITBOX_LAYER_ID = 'strava-routes-hitbox-layer'
     const EVENT_REQUEST = 'STRAVA_OVERLAY_REQUEST'
     const EVENT_RESPONSE = 'STRAVA_OVERLAY_RESPONSE'
+    const KNOWN_MAP_GLOBALS = [
+        'map',
+        '__map',
+        '_map',
+        'maplibreMap',
+        'mapboxMap',
+    ]
+
+    let entityDecoderEl = null
 
     function postResponse(detail) {
         window.dispatchEvent(new CustomEvent(EVENT_RESPONSE, { detail }))
@@ -65,11 +75,36 @@
     }
 
     function discoverExistingMap() {
-        for (const value of Object.values(window)) {
-            if (isValidMapCandidate(value)) {
-                setMapInstance(value)
-                return true
+        if (STATE.ready && STATE.map) {
+            return true
+        }
+
+        for (const key of KNOWN_MAP_GLOBALS) {
+            try {
+                if (isValidMapCandidate(window[key])) {
+                    setMapInstance(window[key])
+                    return true
+                }
+            } catch {
+                // ignore inaccessible globals
             }
+        }
+
+        // Last resort: shallow scan of own enumerable window properties only.
+        try {
+            for (const key of Object.keys(window)) {
+                try {
+                    const value = window[key]
+                    if (isValidMapCandidate(value)) {
+                        setMapInstance(value)
+                        return true
+                    }
+                } catch {
+                    // ignore
+                }
+            }
+        } catch {
+            // ignore
         }
         return false
     }
@@ -88,12 +123,10 @@
         }
     }
 
-    function removeOverlay() {
+    function unbindLayerInteractions() {
         if (!STATE.map) {
             return
         }
-        hidePopup()
-        hideTooltip()
         if (STATE.clickHandler) {
             STATE.map.off('click', HITBOX_LAYER_ID, STATE.clickHandler)
             STATE.clickHandler = null
@@ -122,6 +155,15 @@
             STATE.map.off('mousemove', HITBOX_LAYER_ID, STATE.mouseMoveHandler)
             STATE.mouseMoveHandler = null
         }
+    }
+
+    function removeOverlay() {
+        if (!STATE.map) {
+            return
+        }
+        hidePopup()
+        hideTooltip()
+        unbindLayerInteractions()
         if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
             STATE.map.removeLayer(HITBOX_LAYER_ID)
         }
@@ -132,31 +174,51 @@
             STATE.map.removeSource(SOURCE_ID)
         }
         STATE.overlayApplied = false
+        STATE.style = null
+    }
+
+    function simplifyLine(coordinates, maxPoints) {
+        if (!Array.isArray(coordinates) || coordinates.length <= maxPoints) {
+            return coordinates
+        }
+        const stride = Math.ceil(coordinates.length / maxPoints)
+        const simplified = []
+        for (let i = 0; i < coordinates.length; i += stride) {
+            simplified.push(coordinates[i])
+        }
+        const last = coordinates[coordinates.length - 1]
+        const prev = simplified[simplified.length - 1]
+        if (!prev || prev[0] !== last[0] || prev[1] !== last[1]) {
+            simplified.push(last)
+        }
+        return simplified
     }
 
     function toGeoJsonLineCollection(routes) {
         return {
             type: 'FeatureCollection',
-            features: routes.map((route, index) => ({
-                type: 'Feature',
-                id: route.id || `route-${index}`,
-                properties: {
-                    activityId: route?.metadata?.activityId || route.id || '',
-                    name: route?.metadata?.name || '',
-                    startDate: route?.metadata?.startDate || '',
-                    distance: route?.metadata?.distance || '',
-                    sportType: route?.metadata?.sportType || '',
-                    activityUrl: route?.metadata?.activityUrl || '',
-                    stravaUrl: route?.metadata?.stravaUrl || '',
-                },
-                geometry: {
-                    type: 'LineString',
-                    coordinates: route.points.map((point) => [
-                        point[1],
-                        point[0],
-                    ]),
-                },
-            })),
+            features: routes.map((route, index) => {
+                const points = Array.isArray(route.points) ? route.points : []
+                return {
+                    type: 'Feature',
+                    id: route.id || `route-${index}`,
+                    properties: {
+                        activityId:
+                            route?.metadata?.activityId || route.id || '',
+                        name: route?.metadata?.name || '',
+                        startDate: route?.metadata?.startDate || '',
+                        distance: route?.metadata?.distance || '',
+                        sportType: route?.metadata?.sportType || '',
+                        activityUrl: route?.metadata?.activityUrl || '',
+                        stravaUrl: route?.metadata?.stravaUrl || '',
+                    },
+                    geometry: {
+                        type: 'LineString',
+                        // points are already [lng, lat]
+                        coordinates: simplifyLine(points, 2000),
+                    },
+                }
+            }),
         }
     }
 
@@ -191,9 +253,11 @@
         if (!text.includes('&')) {
             return text
         }
-        const parser = document.createElement('textarea')
-        parser.innerHTML = text
-        return parser.value
+        if (!entityDecoderEl) {
+            entityDecoderEl = document.createElement('textarea')
+        }
+        entityDecoderEl.innerHTML = text
+        return entityDecoderEl.value
     }
 
     function activityTitle(properties = {}) {
@@ -338,6 +402,8 @@
             return
         }
 
+        unbindLayerInteractions()
+
         STATE.mouseEnterHandler = () => {
             STATE.map.getCanvas().style.cursor = 'pointer'
         }
@@ -390,54 +456,124 @@
         STATE.map.on('click', STATE.mapClickHandler)
     }
 
+    function applyPaintStyle(normalizedStyle) {
+        if (!STATE.map) {
+            return
+        }
+        const hitboxWidth = Math.max(normalizedStyle.lineWidth + 8, 12)
+        if (STATE.map.getLayer(LAYER_ID)) {
+            STATE.map.setPaintProperty(
+                LAYER_ID,
+                'line-color',
+                normalizedStyle.lineColor,
+            )
+            STATE.map.setPaintProperty(
+                LAYER_ID,
+                'line-opacity',
+                normalizedStyle.lineOpacity,
+            )
+            STATE.map.setPaintProperty(
+                LAYER_ID,
+                'line-width',
+                normalizedStyle.lineWidth,
+            )
+        }
+        if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
+            STATE.map.setPaintProperty(
+                HITBOX_LAYER_ID,
+                'line-width',
+                hitboxWidth,
+            )
+        }
+        STATE.style = normalizedStyle
+    }
+
+    function ensureLayers(normalizedStyle) {
+        const hitboxWidth = Math.max(normalizedStyle.lineWidth + 8, 12)
+
+        if (!STATE.map.getLayer(HITBOX_LAYER_ID)) {
+            STATE.map.addLayer({
+                id: HITBOX_LAYER_ID,
+                type: 'line',
+                source: SOURCE_ID,
+                paint: {
+                    'line-color': '#000000',
+                    'line-opacity': 0,
+                    'line-width': hitboxWidth,
+                },
+                layout: {
+                    'line-cap': 'round',
+                    'line-join': 'round',
+                },
+            })
+        }
+
+        if (!STATE.map.getLayer(LAYER_ID)) {
+            STATE.map.addLayer({
+                id: LAYER_ID,
+                type: 'line',
+                source: SOURCE_ID,
+                paint: {
+                    'line-color': normalizedStyle.lineColor,
+                    'line-opacity': normalizedStyle.lineOpacity,
+                    'line-width': normalizedStyle.lineWidth,
+                },
+                layout: {
+                    'line-cap': 'round',
+                    'line-join': 'round',
+                },
+            })
+        } else {
+            applyPaintStyle(normalizedStyle)
+        }
+    }
+
     function drawOverlay(routes, style) {
         if (!STATE.map) {
             throw new Error('Map instance is not ready yet.')
         }
 
         const data = toGeoJsonLineCollection(routes)
-        removeOverlay()
+        const normalizedStyle = normalizeStyle(style)
+        const existingSource = STATE.map.getSource(SOURCE_ID)
+
+        if (existingSource && typeof existingSource.setData === 'function') {
+            existingSource.setData(data)
+            ensureLayers(normalizedStyle)
+            applyPaintStyle(normalizedStyle)
+            bindLayerInteractions()
+            STATE.overlayApplied = true
+            return
+        }
+
+        hidePopup()
+        hideTooltip()
+        unbindLayerInteractions()
+        if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
+            STATE.map.removeLayer(HITBOX_LAYER_ID)
+        }
+        if (STATE.map.getLayer(LAYER_ID)) {
+            STATE.map.removeLayer(LAYER_ID)
+        }
+        if (STATE.map.getSource(SOURCE_ID)) {
+            STATE.map.removeSource(SOURCE_ID)
+        }
 
         STATE.map.addSource(SOURCE_ID, {
             type: 'geojson',
             data,
         })
-
-        const normalizedStyle = normalizeStyle(style)
-        const hitboxWidth = Math.max(normalizedStyle.lineWidth + 8, 12)
-
-        STATE.map.addLayer({
-            id: HITBOX_LAYER_ID,
-            type: 'line',
-            source: SOURCE_ID,
-            paint: {
-                'line-color': '#000000',
-                'line-opacity': 0,
-                'line-width': hitboxWidth,
-            },
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round',
-            },
-        })
-
-        STATE.map.addLayer({
-            id: LAYER_ID,
-            type: 'line',
-            source: SOURCE_ID,
-            paint: {
-                'line-color': normalizedStyle.lineColor,
-                'line-opacity': normalizedStyle.lineOpacity,
-                'line-width': normalizedStyle.lineWidth,
-            },
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round',
-            },
-        })
-
+        ensureLayers(normalizedStyle)
         bindLayerInteractions()
         STATE.overlayApplied = true
+        STATE.style = normalizedStyle
+    }
+
+    function updateOverlayStyle(style) {
+        if (!STATE.overlayApplied || !STATE.map) {
+            throw new Error('Overlay is not active.')
+        }
+        applyPaintStyle(normalizeStyle(style))
     }
 
     function ensureMapReady() {
@@ -473,6 +609,16 @@
                     ok: true,
                     enabled: false,
                     routeCount: 0,
+                })
+                return
+            }
+
+            if (detail.action === 'updateStyle') {
+                updateOverlayStyle(detail.style)
+                postResponse({
+                    requestId,
+                    ok: true,
+                    enabled: true,
                 })
                 return
             }
