@@ -2,7 +2,7 @@
     "name": "dreeve-heatmap-plugin",
     "private": true,
     "type": "module",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Chrome extension that overlays self-hosted dreeve routes on supported maps",
     "scripts": {
         "format": "prettier --write .",
