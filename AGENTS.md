@@ -17,6 +17,14 @@ Treat this file as **living documentation**. Update it in the same PR when the s
 - Promote to **`main`** when ready for production.
 - Do not use `master` (rename to `main` if any remnant remains).
 
+## Releases
+
+Before creating a GitHub release:
+
+1. Land the release work on **`dev`** (merged PRs, version bump in `manifest.json` and `package.json`).
+2. **Merge `dev` into `main`** and push `main`. Do not tag or publish a release from `dev` alone.
+3. Create the GitHub release / tag **from `main`** (for example `gh release create vX.Y.Z --target main`).
+
 ## Dependency and deploy notes
 
 ### Tier C - Branches + agent docs
