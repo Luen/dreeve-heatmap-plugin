@@ -1,10 +1,12 @@
-# dreeve-heatmap-plugin
+# Dreeve Heatmap Extension
 
 Chrome extension that overlays your self-hosted [dreeve](https://github.com/dreeveapp/dreeve) routes on:
 
 - `https://gpx.studio/*`
 - `https://studio.wanderstories.space/*`
 - `https://www.openstreetmap.org/edit` (OpenStreetMap iD editor)
+
+<img width="338" height="400" alt="Screenshot of heatmap extension" src="https://github.com/user-attachments/assets/52317c33-42aa-462a-a810-3fe12c49bac8" />
 
 ## Requirements
 
