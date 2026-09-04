@@ -59,8 +59,8 @@ async function saveSettings(partial) {
     await chrome.storage.sync.set(partial)
 }
 
-async function sendApplyToTab(tabId, endpoint, enabled) {
-    const message = { type: 'APPLY_OVERLAY', endpoint, enabled }
+async function sendApplyToTab(tabId, endpoint, enabled, forceRefresh = false) {
+    const message = { type: 'APPLY_OVERLAY', endpoint, enabled, forceRefresh }
 
     const sendToFrame = (frameId) =>
         new Promise((resolve) => {
@@ -261,7 +261,22 @@ saveButton.addEventListener('click', async () => {
                 typeof tab.id === 'number' &&
                 isSupportedTabUrl(tab.url)
             ) {
-                let response = await sendApplyToTab(tab.id, endpoint, true)
+                const endpointChanged =
+                    endpoint !== String(settings[STORAGE_KEYS.endpoint] || '')
+                const sportsChanged =
+                    JSON.stringify(styleAndFilter.sportTypes.slice().sort()) !==
+                    JSON.stringify(
+                        normalizeSportTypes(
+                            settings[STORAGE_KEYS.sportTypes],
+                        ).sort(),
+                    )
+                const forceRefresh = endpointChanged || sportsChanged
+                let response = await sendApplyToTab(
+                    tab.id,
+                    endpoint,
+                    true,
+                    forceRefresh,
+                )
                 if (
                     !response.ok &&
                     String(response.error || '')
@@ -269,7 +284,12 @@ saveButton.addEventListener('click', async () => {
                         .includes('receiving end does not exist')
                 ) {
                     await ensureContentScript(tab.id)
-                    response = await sendApplyToTab(tab.id, endpoint, true)
+                    response = await sendApplyToTab(
+                        tab.id,
+                        endpoint,
+                        true,
+                        forceRefresh,
+                    )
                 }
 
                 if (!response.ok) {
@@ -340,7 +360,12 @@ toggleButton.addEventListener('click', async () => {
         ...styleAndFilter,
     })
 
-    let response = await sendApplyToTab(tab.id, endpoint, nextEnabled)
+    let response = await sendApplyToTab(
+        tab.id,
+        endpoint,
+        nextEnabled,
+        nextEnabled,
+    )
     if (
         !response.ok &&
         String(response.error || '')
@@ -349,7 +374,12 @@ toggleButton.addEventListener('click', async () => {
     ) {
         try {
             await ensureContentScript(tab.id)
-            response = await sendApplyToTab(tab.id, endpoint, nextEnabled)
+            response = await sendApplyToTab(
+                tab.id,
+                endpoint,
+                nextEnabled,
+                nextEnabled,
+            )
         } catch (error) {
             setStatus(
                 error instanceof Error

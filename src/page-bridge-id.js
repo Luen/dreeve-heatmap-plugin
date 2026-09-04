@@ -10,6 +10,7 @@
     // 1x1 transparent PNG — satisfies iD overlay tile template without a CDN
     const TRANSPARENT_TILE =
         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    const GRID_CELL_SIZE = 64
 
     const STATE = {
         context: null,
@@ -27,10 +28,18 @@
         mapHoverHandler: null,
         mapHoverLeaveHandler: null,
         mapHoverTarget: null,
+        hoverRaf: 0,
+        hoverClientX: 0,
+        hoverClientY: 0,
+        lastHoverFeatureId: null,
         pending: null,
         backgroundBound: false,
         layerAdded: false,
+        spatialGrid: null,
+        spatialGridKey: '',
     }
+
+    let entityDecoderEl = null
 
     function postResponse(detail) {
         window.dispatchEvent(new CustomEvent(EVENT_RESPONSE, { detail }))
@@ -51,6 +60,32 @@
             : 2
 
         return { lineColor, lineOpacity, lineWidth }
+    }
+
+    function computeGeoBbox(coordinates) {
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+        for (let i = 0; i < coordinates.length; i += 1) {
+            const coord = coordinates[i]
+            if (!Array.isArray(coord) || coord.length < 2) {
+                continue
+            }
+            const x = coord[0]
+            const y = coord[1]
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                continue
+            }
+            if (x < minX) minX = x
+            if (y < minY) minY = y
+            if (x > maxX) maxX = x
+            if (y > maxY) maxY = y
+        }
+        if (!Number.isFinite(minX)) {
+            return null
+        }
+        return { minX, minY, maxX, maxY }
     }
 
     function toGeoJsonFeatures(routes) {
@@ -75,11 +110,10 @@
                     },
                     geometry: {
                         type: 'LineString',
-                        coordinates: points.map((point) => [
-                            point[1],
-                            point[0],
-                        ]),
+                        // points are already [lng, lat]
+                        coordinates: points,
                     },
+                    _bbox: computeGeoBbox(points),
                 }
             })
             .filter(Boolean)
@@ -90,9 +124,11 @@
         if (!text.includes('&')) {
             return text
         }
-        const parser = document.createElement('textarea')
-        parser.innerHTML = text
-        return parser.value
+        if (!entityDecoderEl) {
+            entityDecoderEl = document.createElement('textarea')
+        }
+        entityDecoderEl.innerHTML = text
+        return entityDecoderEl.value
     }
 
     function activityTitle(properties = {}) {
@@ -131,9 +167,10 @@
             STATE.activeTooltipEl.remove()
             STATE.activeTooltipEl = null
         }
+        STATE.lastHoverFeatureId = null
     }
 
-    function showTooltipAt(clientX, clientY, properties) {
+    function showTooltipAt(clientX, clientY, properties, featureId) {
         const container = getMapContainer()
         if (!container) {
             return
@@ -164,8 +201,12 @@
             STATE.activeTooltipEl = tooltip
         }
 
+        if (STATE.lastHoverFeatureId !== featureId) {
+            tooltip.textContent = activityTitle(properties)
+            STATE.lastHoverFeatureId = featureId
+        }
+
         const bounds = container.getBoundingClientRect()
-        tooltip.textContent = activityTitle(properties)
         tooltip.style.left = `${Math.round(clientX - bounds.left + 12)}px`
         tooltip.style.top = `${Math.round(clientY - bounds.top + 12)}px`
     }
@@ -220,7 +261,207 @@
         return {
             x: clientX - rect.left,
             y: clientY - rect.top,
+            width: rect.width,
+            height: rect.height,
         }
+    }
+
+    function getViewGeoExtent(padPx = 0) {
+        const projection = STATE.context?.projection
+        const surface = getSurfaceNode()
+        if (
+            !projection ||
+            !surface ||
+            typeof projection.invert !== 'function'
+        ) {
+            return null
+        }
+        const rect = surface.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) {
+            return null
+        }
+        const corners = [
+            projection.invert([-padPx, -padPx]),
+            projection.invert([rect.width + padPx, -padPx]),
+            projection.invert([-padPx, rect.height + padPx]),
+            projection.invert([rect.width + padPx, rect.height + padPx]),
+        ]
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+        for (const corner of corners) {
+            if (
+                !corner ||
+                !Number.isFinite(corner[0]) ||
+                !Number.isFinite(corner[1])
+            ) {
+                return null
+            }
+            if (corner[0] < minX) minX = corner[0]
+            if (corner[1] < minY) minY = corner[1]
+            if (corner[0] > maxX) maxX = corner[0]
+            if (corner[1] > maxY) maxY = corner[1]
+        }
+        return { minX, minY, maxX, maxY }
+    }
+
+    function bboxesIntersect(a, b) {
+        return !(
+            a.maxX < b.minX ||
+            a.minX > b.maxX ||
+            a.maxY < b.minY ||
+            a.minY > b.maxY
+        )
+    }
+
+    function getProjectionScale() {
+        const projection = STATE.context?.projection
+        if (!projection) {
+            return 1
+        }
+        try {
+            if (typeof projection.scale === 'function') {
+                return projection.scale() || 1
+            }
+            if (typeof projection.k === 'number') {
+                return projection.k || 1
+            }
+        } catch {
+            // ignore
+        }
+        return 1
+    }
+
+    function simplifyStrideForZoom() {
+        const scale = getProjectionScale()
+        // Higher scale = more zoomed in = keep more points.
+        if (scale >= 256) return 1
+        if (scale >= 64) return 2
+        if (scale >= 16) return 4
+        if (scale >= 4) return 8
+        return 16
+    }
+
+    function simplifyCoordinates(coordinates, stride) {
+        if (
+            !Array.isArray(coordinates) ||
+            coordinates.length <= 2 ||
+            stride <= 1
+        ) {
+            return coordinates
+        }
+        const simplified = []
+        for (let i = 0; i < coordinates.length; i += stride) {
+            simplified.push(coordinates[i])
+        }
+        const last = coordinates[coordinates.length - 1]
+        const prev = simplified[simplified.length - 1]
+        if (!prev || prev[0] !== last[0] || prev[1] !== last[1]) {
+            simplified.push(last)
+        }
+        return simplified.length >= 2 ? simplified : coordinates
+    }
+
+    function buildSpatialGrid(features, projection, width, height) {
+        const cols = Math.max(1, Math.ceil(width / GRID_CELL_SIZE))
+        const rows = Math.max(1, Math.ceil(height / GRID_CELL_SIZE))
+        const cells = new Map()
+
+        const addToCell = (cx, cy, feature) => {
+            if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) {
+                return
+            }
+            const key = `${cx},${cy}`
+            let bucket = cells.get(key)
+            if (!bucket) {
+                bucket = []
+                cells.set(key, bucket)
+            }
+            if (bucket[bucket.length - 1] !== feature) {
+                bucket.push(feature)
+            }
+        }
+
+        for (const feature of features) {
+            const coords = feature.geometry?.coordinates
+            if (!Array.isArray(coords) || coords.length < 2) {
+                continue
+            }
+            let minSX = Infinity
+            let minSY = Infinity
+            let maxSX = -Infinity
+            let maxSY = -Infinity
+            for (let i = 0; i < coords.length; i += 1) {
+                const coord = coords[i]
+                if (!Array.isArray(coord) || coord.length < 2) {
+                    continue
+                }
+                const projected = projection(coord)
+                if (
+                    !projected ||
+                    !Number.isFinite(projected[0]) ||
+                    !Number.isFinite(projected[1])
+                ) {
+                    continue
+                }
+                if (projected[0] < minSX) minSX = projected[0]
+                if (projected[1] < minSY) minSY = projected[1]
+                if (projected[0] > maxSX) maxSX = projected[0]
+                if (projected[1] > maxSY) maxSY = projected[1]
+            }
+            if (!Number.isFinite(minSX)) {
+                continue
+            }
+            feature._screenBbox = {
+                minX: minSX,
+                minY: minSY,
+                maxX: maxSX,
+                maxY: maxSY,
+            }
+            const x0 = Math.floor(minSX / GRID_CELL_SIZE)
+            const x1 = Math.floor(maxSX / GRID_CELL_SIZE)
+            const y0 = Math.floor(minSY / GRID_CELL_SIZE)
+            const y1 = Math.floor(maxSY / GRID_CELL_SIZE)
+            for (let cy = y0; cy <= y1; cy += 1) {
+                for (let cx = x0; cx <= x1; cx += 1) {
+                    addToCell(cx, cy, feature)
+                }
+            }
+        }
+
+        return { cells, cols, rows }
+    }
+
+    function ensureSpatialGrid(point) {
+        const projection = STATE.context?.projection
+        if (!projection || !point) {
+            return null
+        }
+        const key = `${Math.round(point.width)}x${Math.round(point.height)}:${Math.round(getProjectionScale() * 100)}:${STATE.features.length}`
+        if (STATE.spatialGrid && STATE.spatialGridKey === key) {
+            return STATE.spatialGrid
+        }
+        const view = getViewGeoExtent(40)
+        const candidates = view
+            ? STATE.features.filter(
+                  (feature) =>
+                      feature._bbox && bboxesIntersect(feature._bbox, view),
+              )
+            : STATE.features
+        STATE.spatialGrid = buildSpatialGrid(
+            candidates,
+            projection,
+            point.width,
+            point.height,
+        )
+        STATE.spatialGridKey = key
+        return STATE.spatialGrid
+    }
+
+    function invalidateSpatialGrid() {
+        STATE.spatialGrid = null
+        STATE.spatialGridKey = ''
     }
 
     function findFeatureNearClientPoint(clientX, clientY) {
@@ -243,7 +484,43 @@
         let bestFeature = null
         let bestDistSq = maxDistSq
 
-        for (const feature of STATE.features) {
+        const grid = ensureSpatialGrid(point)
+        let candidates = STATE.features
+        if (grid) {
+            const cx = Math.floor(point.x / GRID_CELL_SIZE)
+            const cy = Math.floor(point.y / GRID_CELL_SIZE)
+            const nearby = new Set()
+            for (let dy = -1; dy <= 1; dy += 1) {
+                for (let dx = -1; dx <= 1; dx += 1) {
+                    const bucket = grid.cells.get(`${cx + dx},${cy + dy}`)
+                    if (!bucket) {
+                        continue
+                    }
+                    for (const feature of bucket) {
+                        nearby.add(feature)
+                    }
+                }
+            }
+            if (nearby.size > 0) {
+                candidates = [...nearby]
+            } else {
+                return null
+            }
+        }
+
+        const hitPad = maxDist
+        for (const feature of candidates) {
+            const screenBbox = feature._screenBbox
+            if (
+                screenBbox &&
+                (point.x < screenBbox.minX - hitPad ||
+                    point.x > screenBbox.maxX + hitPad ||
+                    point.y < screenBbox.minY - hitPad ||
+                    point.y > screenBbox.maxY + hitPad)
+            ) {
+                continue
+            }
+
             const coords = feature.geometry?.coordinates
             if (!Array.isArray(coords) || coords.length < 2) {
                 continue
@@ -287,6 +564,10 @@
     }
 
     function unbindMapHover() {
+        if (STATE.hoverRaf) {
+            window.cancelAnimationFrame(STATE.hoverRaf)
+            STATE.hoverRaf = 0
+        }
         if (STATE.mapHoverTarget) {
             if (STATE.mapHoverHandler) {
                 STATE.mapHoverTarget.removeEventListener(
@@ -304,6 +585,29 @@
         STATE.mapHoverHandler = null
         STATE.mapHoverLeaveHandler = null
         STATE.mapHoverTarget = null
+        STATE.lastHoverFeatureId = null
+    }
+
+    function runHoverHitTest() {
+        STATE.hoverRaf = 0
+        if (!STATE.routesVisible || !STATE.features.length) {
+            hideTooltip()
+            return
+        }
+        const feature = findFeatureNearClientPoint(
+            STATE.hoverClientX,
+            STATE.hoverClientY,
+        )
+        if (feature) {
+            showTooltipAt(
+                STATE.hoverClientX,
+                STATE.hoverClientY,
+                feature.properties || {},
+                String(feature.id || ''),
+            )
+        } else {
+            hideTooltip()
+        }
     }
 
     function bindMapHover() {
@@ -314,25 +618,18 @@
         }
 
         STATE.mapHoverHandler = (event) => {
-            if (!STATE.routesVisible || !STATE.features.length) {
-                hideTooltip()
+            STATE.hoverClientX = event.clientX
+            STATE.hoverClientY = event.clientY
+            if (STATE.hoverRaf) {
                 return
             }
-            const feature = findFeatureNearClientPoint(
-                event.clientX,
-                event.clientY,
-            )
-            if (feature) {
-                showTooltipAt(
-                    event.clientX,
-                    event.clientY,
-                    feature.properties || {},
-                )
-            } else {
-                hideTooltip()
-            }
+            STATE.hoverRaf = window.requestAnimationFrame(runHoverHitTest)
         }
         STATE.mapHoverLeaveHandler = () => {
+            if (STATE.hoverRaf) {
+                window.cancelAnimationFrame(STATE.hoverRaf)
+                STATE.hoverRaf = 0
+            }
             hideTooltip()
         }
         STATE.mapHoverTarget = container
@@ -394,6 +691,7 @@
         if (!STATE.context) {
             return
         }
+        invalidateSpatialGrid()
         try {
             const map = STATE.context.map?.()
             if (map && typeof map.redraw === 'function') {
@@ -439,6 +737,8 @@
 
             const projection = context.projection
             const style = STATE.style
+            const view = getViewGeoExtent(24)
+            const stride = simplifyStrideForZoom()
 
             const existing = new Map()
             for (const child of Array.from(group.children)) {
@@ -454,11 +754,26 @@
                 if (!featureId) {
                     continue
                 }
+
+                if (
+                    view &&
+                    feature._bbox &&
+                    !bboxesIntersect(feature._bbox, view)
+                ) {
+                    const hidden = existing.get(featureId)
+                    if (hidden) {
+                        hidden.remove()
+                        existing.delete(featureId)
+                    }
+                    continue
+                }
+
                 seen.add(featureId)
-                const d = linePathFromCoordinates(
+                const coords = simplifyCoordinates(
                     feature.geometry?.coordinates,
-                    projection,
+                    stride,
                 )
+                const d = linePathFromCoordinates(coords, projection)
                 if (!d) {
                     continue
                 }
@@ -501,6 +816,8 @@
                     node.remove()
                 }
             }
+
+            invalidateSpatialGrid()
         }
 
         drawDreeve.enabled = function enabled(val) {
@@ -739,6 +1056,7 @@
         STATE.style = normalizeStyle(style)
         STATE.features = features
         STATE.overlayApplied = true
+        invalidateSpatialGrid()
 
         injectOverlayCss()
         ensureSvgLayer(STATE.context)
@@ -754,12 +1072,21 @@
         return features.length
     }
 
+    function updateRoutesStyle(style) {
+        if (!STATE.overlayApplied) {
+            throw new Error('Overlay is not active.')
+        }
+        STATE.style = normalizeStyle(style)
+        requestRedraw()
+    }
+
     async function disableRoutes() {
         unbindMapHover()
         hideTooltip()
         STATE.features = []
         STATE.overlayApplied = false
         STATE.routesVisible = false
+        invalidateSpatialGrid()
 
         if (STATE.context) {
             await unregisterOverlaySource(STATE.context)
@@ -932,6 +1259,7 @@
                     STATE.overlayApplied = false
                     STATE.features = []
                     STATE.routesVisible = false
+                    invalidateSpatialGrid()
                     hideTooltip()
 
                     if (!STATE.ready) {
@@ -949,6 +1277,16 @@
                         ok: true,
                         enabled: false,
                         routeCount: 0,
+                    })
+                    return
+                }
+
+                if (detail.action === 'updateStyle') {
+                    updateRoutesStyle(detail.style)
+                    postResponse({
+                        requestId,
+                        ok: true,
+                        enabled: true,
                     })
                     return
                 }
