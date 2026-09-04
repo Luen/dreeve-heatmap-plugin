@@ -8,9 +8,9 @@ Treat this file as **living documentation**. Update it in the same PR when the s
 
 ## Branch model
 
-| Branch | Role |
-| --- | --- |
-| `dev` | Default branch for features and improvements |
+| Branch | Role                                                     |
+| ------ | -------------------------------------------------------- |
+| `dev`  | Default branch for features and improvements             |
 | `main` | Production. Safe dependency bumps and releases land here |
 
 - Open feature/fix PRs against **`dev`**.
@@ -28,7 +28,7 @@ Treat this file as **living documentation**. Update it in the same PR when the s
 
 Chrome extension that overlays self-hosted [dreeve](https://github.com/dreeveapp/dreeve) heatmap routes on gpx.studio, studio.wanderstories.space, and the OpenStreetMap iD editor.
 
-Requires **dreeve v5.2.0+**. Routes come from `/api/internal/fragment/data/heatmap/routes`.
+Requires **dreeve v5.3.0+**. Routes come from `/api/internal/fragment/data/heatmap/routes`.
 
 ## Setup and checks
 
@@ -52,5 +52,5 @@ After edits: `npm run format` and `npm run lint:fix` as needed. Code must pass P
 
 Before merging any pull request:
 
-1. **Read all comments** on the PR �?" conversation comments, review comments (including those on specific lines), and bot comments. Address or acknowledge them. Do not merge while review feedback is unresolved.
+1. **Read all comments** on the PR — conversation comments, review comments (including those on specific lines), and bot comments. Address or acknowledge them. Do not merge while review feedback is unresolved.
 2. **Wait for CI to complete successfully.** GitHub Actions (and other required checks) on the PR must finish and pass. Do not merge while checks are pending, failed, cancelled, or skipped when they are required. If CI fails, fix the cause and wait for a green run before merging.

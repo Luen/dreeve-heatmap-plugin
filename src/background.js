@@ -1,7 +1,5 @@
 const FETCH_TIMEOUT_MS = 60000
 const CACHE_TTL_MS = 20 * 60 * 1000
-const LEGACY_ROUTES_PATH = /\/api\/heatmap\/routes\.json\/?$/i
-const PRE_INTERNAL_ROUTES_PATH = /\/api\/fragment\/data\/heatmap\/routes\/?$/i
 const CURRENT_ROUTES_PATH = '/api/internal/fragment/data/heatmap/routes'
 const SESSION_CACHE_KEY = 'routesCache'
 
@@ -17,34 +15,6 @@ function withTimeout(promise, timeoutMs) {
     ])
 }
 
-/**
- * Rewrite legacy endpoint URLs saved in extension settings to the
- * current internal fragment API path.
- */
-function resolveRoutesEndpoint(endpoint) {
-    const trimmed = String(endpoint || '').trim()
-    if (!trimmed) {
-        return ''
-    }
-
-    try {
-        const url = new URL(trimmed)
-        if (
-            LEGACY_ROUTES_PATH.test(url.pathname) ||
-            PRE_INTERNAL_ROUTES_PATH.test(url.pathname)
-        ) {
-            url.pathname = CURRENT_ROUTES_PATH
-            url.search = ''
-            url.hash = ''
-            return url.toString()
-        }
-    } catch {
-        // Fall through and fetch the configured value as-is.
-    }
-
-    return trimmed
-}
-
 function explainJsonParseFailure(rawBody, endpoint) {
     const sample = String(rawBody || '')
         .trimStart()
@@ -52,7 +22,7 @@ function explainJsonParseFailure(rawBody, endpoint) {
     if (sample.startsWith('<!DOCTYPE') || sample.startsWith('<html')) {
         return (
             `Endpoint returned HTML instead of JSON (${endpoint}). ` +
-            `Requires dreeve v5.2.0+ and ${CURRENT_ROUTES_PATH}.`
+            `Requires dreeve v5.3.0+ and ${CURRENT_ROUTES_PATH}.`
         )
     }
     return `Endpoint response is not valid JSON (${endpoint}).`
@@ -182,7 +152,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return undefined
     }
 
-    const endpoint = resolveRoutesEndpoint(message.endpoint)
+    const endpoint = String(message.endpoint || '').trim()
     if (!endpoint) {
         sendResponse({ ok: false, error: 'No endpoint configured.' })
         return true

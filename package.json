@@ -2,7 +2,7 @@
     "name": "dreeve-heatmap-plugin",
     "private": true,
     "type": "module",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "description": "Chrome extension that overlays self-hosted dreeve routes on supported maps",
     "scripts": {
         "format": "prettier --write .",
@@ -13,7 +13,7 @@
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
-        "eslint": "^10.8.1",
+        "eslint": "^10.9.1",
         "eslint-config-prettier": "^10.1.8",
         "globals": "^17.9.0",
         "prettier": "^3.6.2"
