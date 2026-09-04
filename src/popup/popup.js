@@ -24,6 +24,7 @@ const sportsClearAllButton = document.getElementById('sportsClearAll')
 const saveButton = document.getElementById('save')
 const toggleButton = document.getElementById('toggle')
 const statusEl = document.getElementById('status')
+const versionEl = document.getElementById('version')
 
 function setStatus(message, isError = false) {
     statusEl.textContent = message
@@ -152,6 +153,7 @@ function updateToggleLabel(enabled) {
 }
 
 async function initialize() {
+    versionEl.textContent = `Version ${chrome.runtime.getManifest().version}`
     const settings = await getSettings()
     endpointInput.value = String(settings[STORAGE_KEYS.endpoint] || '')
     lineColorInput.value = String(settings[STORAGE_KEYS.lineColor] || '#ff4500')
