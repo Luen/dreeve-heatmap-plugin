@@ -119,3 +119,10 @@ button {
     color: #93c5fd;
     font-size: 12px;
 }
+
+.version {
+    margin: 8px 0 0;
+    color: #94a3b8;
+    font-size: 11px;
+    text-align: right;
+}
