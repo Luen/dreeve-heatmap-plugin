@@ -1,6 +1,6 @@
 # Dreeve Heatmap Extension
 
-Chrome extension that overlays your self-hosted [dreeve](https://github.com/dreeveapp/dreeve) routes on:
+Chrome extension that overlays your self-hosted [Dreeve](https://github.com/dreeveapp/dreeve) routes on:
 
 - `https://gpx.studio/*`
 - `https://studio.wanderstories.space/*`

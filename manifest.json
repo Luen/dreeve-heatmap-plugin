@@ -1,11 +1,11 @@
 {
     "manifest_version": 3,
-    "name": "dreeve Heatmap Plugin",
-    "description": "Overlay self-hosted dreeve routes on gpx.studio, Wanderstories, and OpenStreetMap iD editor.",
+    "name": "Dreeve Heatmap Plugin",
+    "description": "Overlay self-hosted Dreeve routes on gpx.studio, Wanderstories, and OpenStreetMap iD editor.",
     "version": "0.4.1",
     "action": {
         "default_popup": "src/popup/popup.html",
-        "default_title": "dreeve Heatmap Plugin"
+        "default_title": "Dreeve Heatmap Plugin"
     },
     "options_page": "src/options/options.html",
     "permissions": ["storage", "tabs", "scripting", "webNavigation"],

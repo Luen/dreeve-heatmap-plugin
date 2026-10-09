@@ -3,7 +3,7 @@
     "private": true,
     "type": "module",
     "version": "0.4.1",
-    "description": "Chrome extension that overlays self-hosted dreeve routes on supported maps",
+    "description": "Chrome extension that overlays self-hosted Dreeve routes on supported maps",
     "scripts": {
         "format": "prettier --write .",
         "format:check": "prettier --check .",
