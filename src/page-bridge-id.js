@@ -861,7 +861,7 @@
             ;(document.head || document.documentElement).appendChild(style)
         }
         style.textContent = `
-            /* Hide broken/empty tile imagery for the dreeve overlay checkbox layer */
+            /* Hide broken/empty tile imagery for the Dreeve overlay checkbox layer */
             .layer-overlay[data-layer="${OVERLAY_ID}"] img,
             .tiled-overlay.${OVERLAY_ID} img {
                 opacity: 0 !important;
@@ -894,7 +894,7 @@
             id: OVERLAY_ID,
             name: OVERLAY_LABEL,
             description:
-                'Self-hosted dreeve activity routes (vector overlay from the dreeve Heatmap Plugin).',
+                'Self-hosted Dreeve activity routes (vector overlay from the Dreeve Heatmap Plugin).',
             template: TRANSPARENT_TILE,
             zoomExtent: [0, 22],
             overlay: true,

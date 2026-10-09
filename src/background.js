@@ -22,7 +22,7 @@ function explainJsonParseFailure(rawBody, endpoint) {
     if (sample.startsWith('<!DOCTYPE') || sample.startsWith('<html')) {
         return (
             `Endpoint returned HTML instead of JSON (${endpoint}). ` +
-            `Requires dreeve v5.3.0+ and ${CURRENT_ROUTES_PATH}.`
+            `Requires Dreeve v5.3.0+ and ${CURRENT_ROUTES_PATH}.`
         )
     }
     return `Endpoint response is not valid JSON (${endpoint}).`

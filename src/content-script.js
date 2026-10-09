@@ -194,7 +194,7 @@ function resolveActivityUrl(activityUrl, endpoint) {
     try {
         const endpointUrl = new URL(endpoint)
         // Legacy: /activity/activity-123.html
-        // Current dreeve: /api/fragment/page/activity/activity-123
+        // Current Dreeve: /api/fragment/page/activity/activity-123
         const fragmentMatch = raw.match(
             /(?:^|\/)api\/fragment\/page\/activity\/([^/?#]+)/i,
         )
