@@ -1,6 +1,6 @@
 const FETCH_TIMEOUT_MS = 60000
 const CACHE_TTL_MS = 20 * 60 * 1000
-const CURRENT_ROUTES_PATH = '/api/internal/fragment/data/heatmap/routes'
+const CURRENT_ROUTES_PATH = '/api/internal/heatmap/routes'
 const SESSION_CACHE_KEY = 'routesCache'
 
 /** @type {{ endpoint: string, etag: string, data: unknown, fetchedAt: number } | null} */

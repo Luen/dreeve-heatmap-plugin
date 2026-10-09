@@ -13,9 +13,9 @@ Chrome extension that overlays your self-hosted [dreeve](https://github.com/dree
 - **dreeve v5.3.0 or newer** ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.3.0))
 - Support for earlier dreeve versions (including `/api/heatmap/routes.json` and `/api/fragment/data/heatmap/routes`) has been dropped
 
-Routes are loaded from dreeve’s cache-based internal fragment API:
+Routes are loaded from dreeve’s internal heatmap API:
 
-`/api/internal/fragment/data/heatmap/routes`
+`/api/internal/heatmap/routes`
 
 ## What it does
 
@@ -73,7 +73,7 @@ Requires **Node.js 20+**.
 1. Open either supported site
 2. Open the extension popup
 3. Enter your endpoint, for example:
-    - `http://localhost:8000/api/internal/fragment/data/heatmap/routes`
+    - `http://localhost:8000/api/internal/heatmap/routes`
 4. Click **Save**
 5. Click **Enable** to draw routes
 6. Click **Disable** to remove routes
@@ -106,7 +106,7 @@ Style/filter examples:
 - If overlay does not appear, click extension **Reload** in `chrome://extensions`, then refresh the target site tab.
 - On iD, reload the `/edit` page after installing or updating the extension so the editor boot hook can run.
 - If the endpoint is unreachable from your browser network, the popup will show a fetch error.
-- If the endpoint returns HTML instead of JSON, confirm you are on dreeve **v5.3.0+** and using `/api/internal/fragment/data/heatmap/routes`.
+- If the endpoint returns HTML instead of JSON, confirm you are on dreeve **v5.3.0+** and using `/api/internal/heatmap/routes`.
 - For self-signed HTTPS certificates, make sure Chrome already trusts the endpoint in a normal tab.
 
 ## Performance
