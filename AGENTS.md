@@ -36,7 +36,7 @@ Before creating a GitHub release:
 
 Chrome extension that overlays self-hosted [dreeve](https://github.com/dreeveapp/dreeve) heatmap routes on gpx.studio, studio.wanderstories.space, and the OpenStreetMap iD editor.
 
-Requires **dreeve v5.3.0+**. Routes come from `/api/internal/fragment/data/heatmap/routes`.
+Requires **dreeve v5.3.0+**. Routes come from `/api/internal/heatmap/routes`.
 
 ## Setup and checks
 
