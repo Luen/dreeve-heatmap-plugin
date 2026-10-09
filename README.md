@@ -10,15 +10,15 @@ Chrome extension that overlays your self-hosted [dreeve](https://github.com/dree
 
 ## Requirements
 
-- **dreeve v5.3.0 or newer** ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.3.0))
-- Support for earlier dreeve versions (including `/api/heatmap/routes.json` and `/api/fragment/data/heatmap/routes`) has been dropped
+- **Dreeve v5.3.0 or newer** ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.3.0))
+- Support for earlier Dreeve versions (including `/api/heatmap/routes.json` and `/api/fragment/data/heatmap/routes`) has been dropped
 
-Routes are loaded from dreeve’s internal heatmap API: `/api/internal/heatmap/routes`
+Routes are loaded from Dreeve's internal heatmap API: `/api/internal/heatmap/routes`
 
 ## What it does
 
 - Lets the user configure a custom heatmap routes endpoint URL
-- Fetches route data from your dreeve heatmap API
+- Fetches route data from your Dreeve heatmap API
 - Draws route polylines on the page map
 - Clicking a route opens a popup with activity details and links
 - Toggles overlay on/off from the extension popup
@@ -104,7 +104,7 @@ Style/filter examples:
 - If overlay does not appear, click extension **Reload** in `chrome://extensions`, then refresh the target site tab.
 - On iD, reload the `/edit` page after installing or updating the extension so the editor boot hook can run.
 - If the endpoint is unreachable from your browser network, the popup will show a fetch error.
-- If the endpoint returns HTML instead of JSON, confirm you are on dreeve **v5.3.0+** and using `/api/internal/heatmap/routes`.
+- If the endpoint returns HTML instead of JSON, confirm you are on Dreeve **v5.3.0+** and using `/api/internal/heatmap/routes`.
 - For self-signed HTTPS certificates, make sure Chrome already trusts the endpoint in a normal tab.
 
 ## Performance
