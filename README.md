@@ -13,9 +13,7 @@ Chrome extension that overlays your self-hosted [dreeve](https://github.com/dree
 - **dreeve v5.3.0 or newer** ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.3.0))
 - Support for earlier dreeve versions (including `/api/heatmap/routes.json` and `/api/fragment/data/heatmap/routes`) has been dropped
 
-Routes are loaded from dreeve’s internal heatmap API:
-
-`/api/internal/heatmap/routes`
+Routes are loaded from dreeve’s internal heatmap API: `/api/internal/heatmap/routes`
 
 ## What it does
 
