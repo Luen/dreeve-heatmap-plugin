@@ -37,8 +37,8 @@ Before creating a GitHub release:
 Chrome extension that overlays self-hosted [Dreeve](https://github.com/dreeveapp/dreeve) heatmap routes (and explorer tiles) on gpx.studio, studio.wanderstories.space, and the OpenStreetMap iD editor.
 
 - Routes: **Dreeve v5.3.0+**, `/api/internal/heatmap/routes`
-- Explorer tiles: **Dreeve v5.6.0+**, `/api/internal/heatmap/tiles` (derived from the routes URL; MapLibre/Mapbox hosts only — not OSM iD)
-- Tile math lives in `src/explorer-tiles.js` (injected before `page-bridge.js`). Layer toggles: `showRoutes` / `showTiles` in `chrome.storage.sync`.
+- Explorer tiles: **Dreeve v5.6.0+**, `/api/internal/heatmap/tiles` (derived from the routes URL; MapLibre GL JS and Mapbox GL JS hosts only — not OSM iD)
+- Tile math lives in `src/explorer-tiles.js` (injected before `page-bridge.js`). Layer toggles: `showRoutes` / `showTiles` in `chrome.storage.sync`. On OSM, the popup disables **Show tiles** and does not overwrite the stored preference.
 
 ## Setup and checks
 
@@ -54,9 +54,22 @@ After edits: `npm run format` and `npm run lint:fix` as needed. Code must pass P
 ## Conventions
 
 - ESLint 10 flat config; Prettier for format. Do not add a second formatter.
-- Keep overlay logic DRY across MapLibre / Mapbox / iD editor adapters.
+- Prefer **DRY** (Don't Repeat Yourself): share helpers and overlay logic across MapLibre / Mapbox / iD adapters instead of copying near-identical blocks.
+- When touching duplicated or brittle code, **refactor for maintainability** in the same change when the risk is low and the scope stays focused. Prefer small extract/consolidate steps over drive-by rewrites.
 - Do not restore dropped support for old Dreeve heatmap endpoints.
 - Never commit secrets.
+
+## Filing issues (AI agents)
+
+When you notice problems or opportunities that are **out of scope** for the current task, open a GitHub issue (via `gh issue create`) rather than ignoring them or expanding the PR without asking. Typical candidates:
+
+- Bugs or incorrect behavior
+- UX gaps or misleading UI
+- Performance improvements (redraw cost, payload size, caching, SVG/DOM pressure, etc.)
+- Refactor targets (duplication, oversized files, unclear boundaries between adapters)
+- Docs or test gaps that would help future work
+
+Before creating an issue: search existing open issues for duplicates. Keep the title specific; include where you saw it (file/path or host), why it matters, and a short suggested direction when useful. Do not file issues for speculative or cosmetic noise.
 
 ## Pull requests
 

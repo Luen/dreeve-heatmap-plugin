@@ -21,8 +21,8 @@ Routes are loaded from `/api/internal/heatmap/routes`. Explorer tiles are loaded
 - Lets the user configure a custom heatmap routes endpoint URL
 - Fetches route data from your Dreeve heatmap API
 - Draws route polylines on the page map
-- On gpx.studio and Wanderstories, overlays Dreeve explorer tiles (visited / cluster / max-cluster / max-square), matching the Dreeve heatmap
-- Independent **Show routes** / **Show tiles** checkboxes (both on by default; tiles not shown on OpenStreetMap iD)
+- On MapLibre (gpx.studio) and Mapbox GL JS (Wanderstories), overlays Dreeve explorer tiles (visited / cluster / max-cluster / max-square), matching the Dreeve heatmap
+- Independent **Show routes** / **Show tiles** checkboxes (both on by default; on OpenStreetMap iD the popup disables **Show tiles** — routes only)
 - Shared colour and opacity for routes and tiles; route width applies to lines only
 - Clicking a route opens a popup with activity details and links
 - Toggles overlay on/off from the extension popup
@@ -85,7 +85,7 @@ Settings on the options page save automatically to storage and apply the next ti
 ### OpenStreetMap iD editor
 
 1. Open the iD editor: [https://www.openstreetmap.org/edit](https://www.openstreetmap.org/edit) (example with map: `https://www.openstreetmap.org/edit#map=16/48.82523/-125.13630`)
-2. Open the extension popup, set your endpoint, then click **Enable**
+2. Open the extension popup, set your endpoint, then click **Enable** (**Show tiles** is disabled here; explorer tiles are MapLibre / Mapbox only)
 3. Press **B** (Background settings) and scroll to **Overlays**
 4. Toggle **Dreeve Routes** on/off in the overlays list
 5. Click **Disable** in the extension popup to unload route data and remove the overlay entry
@@ -103,7 +103,7 @@ Style/filter examples:
 - Endpoint and toggle state are stored with `chrome.storage.sync`.
 - Extension permissions include broad `http://*/*` and `https://*/*` host access so users can point to any self-hosted endpoint URL.
 - On OSM, `/edit` embeds iD in an `/id` iframe; the extension hooks that iframe and messages it from the popup.
-- Explorer tiles are not drawn on OpenStreetMap iD (routes only).
+- Explorer tiles are not drawn on OpenStreetMap iD (routes only). The popup disables **Show tiles** on OSM so the preference is unchanged for MapLibre / Mapbox hosts.
 
 ## Troubleshooting
 

@@ -25,6 +25,8 @@ const lineWidthInput = document.getElementById('lineWidth')
 const sportTypesGroup = document.getElementById('sportTypesGroup')
 const showRoutesInput = document.getElementById('showRoutes')
 const showTilesInput = document.getElementById('showTiles')
+const showTilesLabel = document.getElementById('showTilesLabel')
+const tilesHostNote = document.getElementById('tilesHostNote')
 const sportsSelectAllButton = document.getElementById('sportsSelectAll')
 const sportsClearAllButton = document.getElementById('sportsClearAll')
 const toggleButton = document.getElementById('toggle')
@@ -134,6 +136,26 @@ async function sendApplyToTab(tabId, endpoint, enabled, forceRefresh = false) {
     return sendToFrame(0)
 }
 
+function isOsmTabUrl(url) {
+    if (!url) {
+        return false
+    }
+    try {
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return false
+        }
+        // Users open /edit; iD itself runs on /id (often in an iframe).
+        return (
+            parsed.hostname === 'www.openstreetmap.org' &&
+            (parsed.pathname.startsWith('/edit') ||
+                parsed.pathname.startsWith('/id'))
+        )
+    } catch {
+        return false
+    }
+}
+
 function isSupportedTabUrl(url) {
     if (!url) {
         return false
@@ -149,15 +171,16 @@ function isSupportedTabUrl(url) {
         ) {
             return true
         }
-        // Users open /edit; iD itself runs on /id (often in an iframe).
-        return (
-            parsed.hostname === 'www.openstreetmap.org' &&
-            (parsed.pathname.startsWith('/edit') ||
-                parsed.pathname.startsWith('/id'))
-        )
+        return isOsmTabUrl(url)
     } catch {
         return false
     }
+}
+
+function updateTilesHostUi(isOsm) {
+    showTilesInput.disabled = isOsm
+    showTilesLabel.classList.toggle('is-disabled', isOsm)
+    tilesHostNote.hidden = !isOsm
 }
 
 function pingContentScript(tabId, frameId) {
@@ -229,6 +252,8 @@ async function initialize() {
     showTilesInput.checked = settings[STORAGE_KEYS.showTiles] !== false
     renderSportTypeCheckboxes(settings[STORAGE_KEYS.sportTypes])
     updateToggleLabel(Boolean(settings[STORAGE_KEYS.enabled]))
+    const tab = await getActiveTab()
+    updateTilesHostUi(isOsmTabUrl(tab?.url))
 }
 
 function normalizeSportTypes(rawValue) {
@@ -281,13 +306,19 @@ function setAllSportTypeSelection(checked) {
     }
 }
 
-function getStyleAndFilterInputValues() {
+/**
+ * @param {{ showTilesOverride?: boolean }} [options]
+ */
+function getStyleAndFilterInputValues(options = {}) {
     const lineColor = String(lineColorInput.value || '').trim()
     const lineOpacity = Number(lineOpacityInput.value)
     const lineWidth = Number(lineWidthInput.value)
     const sportTypes = getSelectedSportTypes()
     const showRoutes = Boolean(showRoutesInput.checked)
-    const showTiles = Boolean(showTilesInput.checked)
+    const showTiles =
+        typeof options.showTilesOverride === 'boolean'
+            ? options.showTilesOverride
+            : Boolean(showTilesInput.checked)
 
     if (!/^#[0-9a-fA-F]{6}$/.test(lineColor)) {
         throw new Error('Route color must be a valid hex color.')
@@ -313,6 +344,14 @@ function getStyleAndFilterInputValues() {
     }
 }
 
+async function readStyleAndFilterForActiveTab() {
+    const [settings, tab] = await Promise.all([getSettings(), getActiveTab()])
+    const showTilesOverride = isOsmTabUrl(tab?.url)
+        ? settings[STORAGE_KEYS.showTiles] !== false
+        : undefined
+    return getStyleAndFilterInputValues({ showTilesOverride })
+}
+
 function debounceNumberPersist() {
     if (numberPersistTimer) {
         clearTimeout(numberPersistTimer)
@@ -329,9 +368,10 @@ function debounceNumberPersist() {
 async function persistAndMaybeApply(options = {}) {
     const includeEndpoint = Boolean(options.includeEndpoint)
     const run = async () => {
+        const settings = await getSettings()
         let styleAndFilter
         try {
-            styleAndFilter = getStyleAndFilterInputValues()
+            styleAndFilter = await readStyleAndFilterForActiveTab()
         } catch (error) {
             setStatus(
                 error instanceof Error
@@ -342,7 +382,6 @@ async function persistAndMaybeApply(options = {}) {
             return
         }
 
-        const settings = await getSettings()
         const inputEndpoint = endpointInput.value.trim()
         let endpoint = String(settings[STORAGE_KEYS.endpoint] || '').trim()
 
@@ -472,7 +511,7 @@ toggleButton.addEventListener('click', async () => {
 
     let styleAndFilter
     try {
-        styleAndFilter = getStyleAndFilterInputValues()
+        styleAndFilter = await readStyleAndFilterForActiveTab()
     } catch (error) {
         setStatus(
             error instanceof Error ? error.message : 'Invalid style settings.',

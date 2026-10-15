@@ -61,11 +61,19 @@
                     <input id="showRoutes" type="checkbox" checked />
                     <span>Show routes</span>
                 </label>
-                <label class="checkbox-item" for="showTiles">
+                <label
+                    id="showTilesLabel"
+                    class="checkbox-item"
+                    for="showTiles"
+                >
                     <input id="showTiles" type="checkbox" checked />
                     <span>Show tiles</span>
                 </label>
             </div>
+            <p id="tilesHostNote" class="host-note" hidden>
+                Explorer tiles work on MapLibre / Mapbox hosts (gpx.studio,
+                Wanderstories). OpenStreetMap iD shows routes only.
+            </p>
             <div class="row">
                 <button id="toggle" type="button">Enable</button>
             </div>
