@@ -46,11 +46,7 @@
     ],
     "web_accessible_resources": [
         {
-            "resources": [
-                "src/explorer-tiles.js",
-                "src/page-bridge.js",
-                "src/normalize-routes-worker.js"
-            ],
+            "resources": ["src/explorer-tiles.js", "src/page-bridge.js"],
             "matches": [
                 "http://gpx.studio/*",
                 "https://gpx.studio/*",
@@ -59,12 +55,12 @@
             ]
         },
         {
-            "resources": [
-                "src/page-bridge-id.js",
-                "src/id/start.js",
-                "src/normalize-routes-worker.js"
-            ],
+            "resources": ["src/page-bridge-id.js", "src/id/start.js"],
             "matches": ["*://www.openstreetmap.org/*"]
+        },
+        {
+            "resources": ["src/normalize-routes-worker.js"],
+            "matches": ["<all_urls>"]
         }
     ]
 }
