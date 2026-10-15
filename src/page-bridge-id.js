@@ -1080,6 +1080,27 @@
         requestRedraw()
     }
 
+    async function updateRoutesVisibility(showRoutes) {
+        if (!STATE.overlayApplied || !STATE.features.length) {
+            throw new Error('Overlay is not active.')
+        }
+        if (!STATE.ready || !STATE.context) {
+            throw new Error('iD editor is not ready yet.')
+        }
+
+        if (showRoutes) {
+            await enableOverlayCheckbox(STATE.context)
+            STATE.routesVisible = true
+            bindMapHover()
+        } else {
+            await disableOverlayCheckbox(STATE.context)
+            STATE.routesVisible = false
+            unbindMapHover()
+            hideTooltip()
+        }
+        requestRedraw()
+    }
+
     async function disableRoutes() {
         unbindMapHover()
         hideTooltip()
@@ -1283,6 +1304,17 @@
 
                 if (detail.action === 'updateStyle') {
                     updateRoutesStyle(detail.style)
+                    postResponse({
+                        requestId,
+                        ok: true,
+                        enabled: true,
+                    })
+                    return
+                }
+
+                if (detail.action === 'updateVisibility') {
+                    // Explorer tiles are MapLibre/Mapbox only; iD toggles routes.
+                    await updateRoutesVisibility(detail.showRoutes !== false)
                     postResponse({
                         requestId,
                         ok: true,

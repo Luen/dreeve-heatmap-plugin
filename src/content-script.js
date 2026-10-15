@@ -38,6 +38,8 @@
         sportTypesKey: '',
         showRoutes: true,
         showTiles: true,
+        routesLoaded: false,
+        tilesLoaded: false,
         style: null,
         tilesWarning: '',
     }
@@ -476,6 +478,8 @@
         tileCount,
         showRoutes,
         showTiles,
+        routesLoaded,
+        tilesLoaded,
         tilesWarning,
     }) {
         OVERLAY_STATE.active = true
@@ -486,6 +490,8 @@
         OVERLAY_STATE.style = style
         OVERLAY_STATE.showRoutes = showRoutes
         OVERLAY_STATE.showTiles = showTiles
+        OVERLAY_STATE.routesLoaded = Boolean(routesLoaded)
+        OVERLAY_STATE.tilesLoaded = Boolean(tilesLoaded)
         OVERLAY_STATE.tilesWarning = tilesWarning || ''
     }
 
@@ -498,7 +504,19 @@
         OVERLAY_STATE.style = null
         OVERLAY_STATE.showRoutes = true
         OVERLAY_STATE.showTiles = true
+        OVERLAY_STATE.routesLoaded = false
+        OVERLAY_STATE.tilesLoaded = false
         OVERLAY_STATE.tilesWarning = ''
+    }
+
+    function currentOverlayCounts() {
+        return {
+            ok: true,
+            enabled: true,
+            routeCount: OVERLAY_STATE.routeCount,
+            tileCount: OVERLAY_STATE.tileCount,
+            tilesWarning: OVERLAY_STATE.tilesWarning,
+        }
     }
 
     async function applyOverlay({ endpoint, enabled, forceRefresh = false }) {
@@ -530,40 +548,6 @@
             lineWidth: settings[STORAGE_KEYS.lineWidth],
         })
         const nextSportKey = sportTypesKey(settings[STORAGE_KEYS.sportTypes])
-        const geometryUnchanged =
-            OVERLAY_STATE.active &&
-            OVERLAY_STATE.endpoint === endpoint &&
-            OVERLAY_STATE.sportTypesKey === nextSportKey &&
-            OVERLAY_STATE.showRoutes === showRoutes &&
-            OVERLAY_STATE.showTiles === showTiles
-
-        if (geometryUnchanged && !forceRefresh) {
-            if (stylesEqual(style, OVERLAY_STATE.style)) {
-                return {
-                    ok: true,
-                    enabled: true,
-                    routeCount: OVERLAY_STATE.routeCount,
-                    tileCount: OVERLAY_STATE.tileCount,
-                    tilesWarning: OVERLAY_STATE.tilesWarning,
-                }
-            }
-
-            const styleResult = await sendBridgeCommand({
-                action: 'updateStyle',
-                style,
-            })
-            if (styleResult.ok) {
-                OVERLAY_STATE.style = style
-                return {
-                    ok: true,
-                    enabled: true,
-                    routeCount: OVERLAY_STATE.routeCount,
-                    tileCount: OVERLAY_STATE.tileCount,
-                    tilesWarning: OVERLAY_STATE.tilesWarning,
-                }
-            }
-            // Fall through to full apply if bridge does not support updateStyle yet.
-        }
 
         if (!showRoutes && !showTiles) {
             const disableResult = await sendBridgeCommand({ action: 'disable' })
@@ -580,6 +564,8 @@
                 tileCount: 0,
                 showRoutes,
                 showTiles,
+                routesLoaded: false,
+                tilesLoaded: false,
                 tilesWarning: '',
             })
             return {
@@ -589,6 +575,58 @@
                 tileCount: 0,
                 tilesWarning: '',
             }
+        }
+
+        const geometryUnchanged =
+            OVERLAY_STATE.active &&
+            OVERLAY_STATE.endpoint === endpoint &&
+            OVERLAY_STATE.sportTypesKey === nextSportKey
+        const needsRoutesLoad = showRoutes && !OVERLAY_STATE.routesLoaded
+        const needsTilesLoad = showTiles && !OVERLAY_STATE.tilesLoaded
+        const visibilityChanged =
+            OVERLAY_STATE.showRoutes !== showRoutes ||
+            OVERLAY_STATE.showTiles !== showTiles
+        const styleChanged = !stylesEqual(style, OVERLAY_STATE.style)
+
+        if (
+            geometryUnchanged &&
+            !forceRefresh &&
+            !needsRoutesLoad &&
+            !needsTilesLoad
+        ) {
+            if (!visibilityChanged && !styleChanged) {
+                return currentOverlayCounts()
+            }
+
+            let styleOk = !styleChanged
+            if (styleChanged) {
+                const styleResult = await sendBridgeCommand({
+                    action: 'updateStyle',
+                    style,
+                })
+                if (styleResult.ok) {
+                    OVERLAY_STATE.style = style
+                    styleOk = true
+                }
+            }
+
+            if (styleOk && !visibilityChanged) {
+                return currentOverlayCounts()
+            }
+
+            if (styleOk && visibilityChanged) {
+                const visibilityResult = await sendBridgeCommand({
+                    action: 'updateVisibility',
+                    showRoutes,
+                    showTiles,
+                })
+                if (visibilityResult.ok) {
+                    OVERLAY_STATE.showRoutes = showRoutes
+                    OVERLAY_STATE.showTiles = showTiles
+                    return currentOverlayCounts()
+                }
+            }
+            // Fall through to full apply if a bridge fast path is unavailable.
         }
 
         const payload = await fetchRoutes(endpoint, forceRefresh)
@@ -667,6 +705,8 @@
             tileCount: tileIds.length,
             showRoutes,
             showTiles,
+            routesLoaded: showRoutes,
+            tilesLoaded: showTiles,
             tilesWarning,
         })
         return {

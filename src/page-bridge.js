@@ -766,6 +766,29 @@
         }
     }
 
+    function setTileLayersVisibility(visible) {
+        const visibility = visible ? 'visible' : 'none'
+        for (const layerId of TILE_LAYER_IDS) {
+            if (STATE.map.getLayer(layerId)) {
+                STATE.map.setLayoutProperty(layerId, 'visibility', visibility)
+            }
+        }
+    }
+
+    function setRouteLayersVisibility(visible) {
+        const visibility = visible ? 'visible' : 'none'
+        if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
+            STATE.map.setLayoutProperty(
+                HITBOX_LAYER_ID,
+                'visibility',
+                visibility,
+            )
+        }
+        if (STATE.map.getLayer(LAYER_ID)) {
+            STATE.map.setLayoutProperty(LAYER_ID, 'visibility', visibility)
+        }
+    }
+
     function ensureRouteLayers(normalizedStyle) {
         const hitboxWidth = Math.max(normalizedStyle.lineWidth + 8, 12)
         const visibility = STATE.showRoutes ? 'visible' : 'none'
@@ -808,24 +831,26 @@
             applyPaintStyle(normalizedStyle)
         }
 
-        if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
-            STATE.map.setLayoutProperty(
-                HITBOX_LAYER_ID,
-                'visibility',
-                visibility,
-            )
-        }
-        if (STATE.map.getLayer(LAYER_ID)) {
-            STATE.map.setLayoutProperty(LAYER_ID, 'visibility', visibility)
-        }
+        setRouteLayersVisibility(STATE.showRoutes)
     }
 
-    function setTileLayersVisibility(visible) {
-        const visibility = visible ? 'visible' : 'none'
-        for (const layerId of TILE_LAYER_IDS) {
-            if (STATE.map.getLayer(layerId)) {
-                STATE.map.setLayoutProperty(layerId, 'visibility', visibility)
-            }
+    function updateOverlayVisibility(showRoutes, showTiles) {
+        if (!STATE.overlayApplied || !STATE.map) {
+            throw new Error('Overlay is not active.')
+        }
+
+        STATE.showRoutes = Boolean(showRoutes)
+        STATE.showTiles = Boolean(showTiles)
+
+        hidePopup()
+        hideTooltip()
+        setRouteLayersVisibility(STATE.showRoutes)
+        setTileLayersVisibility(STATE.showTiles)
+
+        if (STATE.showRoutes && STATE.map.getLayer(HITBOX_LAYER_ID)) {
+            bindLayerInteractions()
+        } else {
+            unbindLayerInteractions()
         }
     }
 
@@ -948,6 +973,16 @@
 
             if (detail.action === 'updateStyle') {
                 updateOverlayStyle(detail.style)
+                postResponse({
+                    requestId,
+                    ok: true,
+                    enabled: true,
+                })
+                return
+            }
+
+            if (detail.action === 'updateVisibility') {
+                updateOverlayVisibility(detail.showRoutes, detail.showTiles)
                 postResponse({
                     requestId,
                     ok: true,
