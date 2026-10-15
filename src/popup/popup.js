@@ -7,7 +7,14 @@ const STORAGE_KEYS = {
     sportTypes: 'sportTypes',
     showRoutes: 'showRoutes',
     showTiles: 'showTiles',
+    siteEnabledByOrigin: 'siteEnabledByOrigin',
 }
+
+const BUILT_IN_HOSTS = new Set([
+    'gpx.studio',
+    'studio.wanderstories.space',
+    'www.openstreetmap.org',
+])
 
 const SPORT_TYPE_OPTIONS = [
     { value: 'Ride', label: 'Ride' },
@@ -27,6 +34,9 @@ const showRoutesInput = document.getElementById('showRoutes')
 const showTilesInput = document.getElementById('showTiles')
 const showTilesLabel = document.getElementById('showTilesLabel')
 const tilesHostNote = document.getElementById('tilesHostNote')
+const siteEnabledInput = document.getElementById('siteEnabled')
+const siteEnabledLabel = document.getElementById('siteEnabledLabel')
+const siteHostNote = document.getElementById('siteHostNote')
 const sportsSelectAllButton = document.getElementById('sportsSelectAll')
 const sportsClearAllButton = document.getElementById('sportsClearAll')
 const toggleButton = document.getElementById('toggle')
@@ -75,7 +85,56 @@ async function getSettings() {
         [STORAGE_KEYS.sportTypes]: [],
         [STORAGE_KEYS.showRoutes]: true,
         [STORAGE_KEYS.showTiles]: true,
+        [STORAGE_KEYS.siteEnabledByOrigin]: {},
     })
+}
+
+function normalizeSiteEnabledMap(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return {}
+    }
+    const normalized = {}
+    for (const [origin, value] of Object.entries(raw)) {
+        if (
+            typeof origin === 'string' &&
+            origin &&
+            typeof value === 'boolean'
+        ) {
+            normalized[origin] = value
+        }
+    }
+    return normalized
+}
+
+function tabOrigin(url) {
+    try {
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return ''
+        }
+        return parsed.origin
+    } catch {
+        return ''
+    }
+}
+
+function isBuiltInHost(hostname) {
+    return BUILT_IN_HOSTS.has(String(hostname || ''))
+}
+
+function isSiteEnabledForOrigin(origin, siteEnabledByOrigin) {
+    if (!origin) {
+        return false
+    }
+    const map = normalizeSiteEnabledMap(siteEnabledByOrigin)
+    if (Object.prototype.hasOwnProperty.call(map, origin)) {
+        return map[origin] === true
+    }
+    try {
+        return isBuiltInHost(new URL(origin).hostname)
+    } catch {
+        return false
+    }
 }
 
 async function saveSettings(partial) {
@@ -156,31 +215,85 @@ function isOsmTabUrl(url) {
     }
 }
 
-function isSupportedTabUrl(url) {
-    if (!url) {
-        return false
-    }
-    try {
-        const parsed = new URL(url)
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            return false
-        }
-        if (
-            parsed.hostname === 'gpx.studio' ||
-            parsed.hostname === 'studio.wanderstories.space'
-        ) {
-            return true
-        }
-        return isOsmTabUrl(url)
-    } catch {
-        return false
-    }
-}
-
 function updateTilesHostUi(isOsm) {
     showTilesInput.disabled = isOsm
     showTilesLabel.classList.toggle('is-disabled', isOsm)
     tilesHostNote.hidden = !isOsm
+}
+
+function updateSiteEnabledUi(tab, siteEnabledByOrigin) {
+    const origin = tabOrigin(tab?.url)
+    const eligible = Boolean(origin)
+    siteEnabledInput.disabled = !eligible
+    siteEnabledLabel.classList.toggle('is-disabled', !eligible)
+    if (!eligible) {
+        siteEnabledInput.checked = false
+        siteHostNote.textContent =
+            'Open an http(s) page to enable the overlay on that site.'
+        return origin
+    }
+    siteEnabledInput.checked = isSiteEnabledForOrigin(
+        origin,
+        siteEnabledByOrigin,
+    )
+    try {
+        const hostname = new URL(origin).hostname
+        siteHostNote.textContent = isBuiltInHost(hostname)
+            ? 'Built-in host (on by default). Uncheck to skip this site.'
+            : 'Custom site. Enable here, then Enable the overlay (needs a MapLibre / Mapbox map).'
+    } catch {
+        siteHostNote.textContent =
+            'Enable this site, then Enable the overlay when a map is present.'
+    }
+    return origin
+}
+
+function sendProbeToFrame(tabId, frameId) {
+    return new Promise((resolve) => {
+        const callback = (response) => {
+            if (chrome.runtime.lastError || !response) {
+                resolve({ ok: false, ready: false })
+                return
+            }
+            resolve({
+                ok: Boolean(response.ok),
+                ready: Boolean(response.ready),
+                error: response.error || '',
+            })
+        }
+        const message = { type: 'PROBE_MAP' }
+        if (typeof frameId === 'number') {
+            chrome.tabs.sendMessage(tabId, message, { frameId }, callback)
+        } else {
+            chrome.tabs.sendMessage(tabId, message, callback)
+        }
+    })
+}
+
+async function probeMapReady(tabId) {
+    try {
+        const frames = await chrome.webNavigation.getAllFrames({ tabId })
+        const idFrame = (frames || []).find((frame) => {
+            try {
+                const parsed = new URL(frame.url)
+                return (
+                    parsed.hostname === 'www.openstreetmap.org' &&
+                    parsed.pathname.startsWith('/id')
+                )
+            } catch {
+                return false
+            }
+        })
+        if (idFrame && typeof idFrame.frameId === 'number') {
+            const iframeProbe = await sendProbeToFrame(tabId, idFrame.frameId)
+            if (iframeProbe.ok || iframeProbe.ready) {
+                return iframeProbe
+            }
+        }
+    } catch {
+        // Fall through to main-frame probe
+    }
+    return sendProbeToFrame(tabId, 0)
 }
 
 function pingContentScript(tabId, frameId) {
@@ -254,6 +367,7 @@ async function initialize() {
     updateToggleLabel(Boolean(settings[STORAGE_KEYS.enabled]))
     const tab = await getActiveTab()
     updateTilesHostUi(isOsmTabUrl(tab?.url))
+    updateSiteEnabledUi(tab, settings[STORAGE_KEYS.siteEnabledByOrigin])
 }
 
 function normalizeSportTypes(rawValue) {
@@ -413,7 +527,16 @@ async function persistAndMaybeApply(options = {}) {
         }
 
         const tab = await getActiveTab()
-        if (!tab || typeof tab.id !== 'number' || !isSupportedTabUrl(tab.url)) {
+        const origin = tabOrigin(tab?.url)
+        if (
+            !tab ||
+            typeof tab.id !== 'number' ||
+            !origin ||
+            !isSiteEnabledForOrigin(
+                origin,
+                settings[STORAGE_KEYS.siteEnabledByOrigin],
+            )
+        ) {
             setStatus('Settings saved.')
             return
         }
@@ -489,20 +612,31 @@ toggleButton.addEventListener('click', async () => {
         setStatus('No active tab found.', true)
         return
     }
-    if (!isSupportedTabUrl(tab.url)) {
-        setStatus(
-            'Open gpx.studio, studio.wanderstories.space, or openstreetmap.org/edit and try again.',
-            true,
-        )
+    const origin = tabOrigin(tab.url)
+    if (!origin) {
+        setStatus('Open an http(s) page with a map and try again.', true)
         return
     }
 
     const settings = await getSettings()
+    const siteEnabled = isSiteEnabledForOrigin(
+        origin,
+        settings[STORAGE_KEYS.siteEnabledByOrigin],
+    )
+
     const endpoint =
         endpointInput.value.trim() ||
         String(settings[STORAGE_KEYS.endpoint] || '').trim()
     const currentlyEnabled = Boolean(settings[STORAGE_KEYS.enabled])
     const nextEnabled = !currentlyEnabled
+
+    if (nextEnabled && !siteEnabled) {
+        setStatus(
+            'Turn on “Enable on this site” before enabling the overlay.',
+            true,
+        )
+        return
+    }
 
     if (nextEnabled && !isValidEndpoint(endpoint)) {
         setStatus('Enter a valid endpoint before enabling overlay.', true)
@@ -566,12 +700,77 @@ toggleButton.addEventListener('click', async () => {
     updateToggleLabel(nextEnabled)
 
     if (nextEnabled) {
+        const probe = await probeMapReady(tab.id)
+        if (!probe.ready && !isOsmTabUrl(tab.url)) {
+            setStatus(
+                `Overlay requested, but no MapLibre/Mapbox map was found on this page.`,
+                true,
+            )
+            return
+        }
         setStatus(
             `Overlay enabled (${formatOverlayCounts(response)}).`,
             Boolean(response.tilesWarning),
         )
     } else {
         setStatus('Overlay disabled.')
+    }
+})
+
+siteEnabledInput.addEventListener('change', async () => {
+    const tab = await getActiveTab()
+    const origin = tabOrigin(tab?.url)
+    if (!origin || typeof tab?.id !== 'number') {
+        siteEnabledInput.checked = false
+        setStatus('Open an http(s) page to change site settings.', true)
+        return
+    }
+
+    const settings = await getSettings()
+    const siteMap = normalizeSiteEnabledMap(
+        settings[STORAGE_KEYS.siteEnabledByOrigin],
+    )
+    const next = Boolean(siteEnabledInput.checked)
+    siteMap[origin] = next
+    await saveSettings({ [STORAGE_KEYS.siteEnabledByOrigin]: siteMap })
+    updateSiteEnabledUi(tab, siteMap)
+
+    if (!next) {
+        if (settings[STORAGE_KEYS.enabled]) {
+            try {
+                await ensureContentScript(tab.id)
+                await sendApplyToTab(
+                    tab.id,
+                    String(settings[STORAGE_KEYS.endpoint] || ''),
+                    false,
+                    false,
+                )
+            } catch {
+                // best-effort disable on this tab
+            }
+        }
+        setStatus('Extension disabled on this site.')
+        return
+    }
+
+    try {
+        await ensureContentScript(tab.id)
+        const probe = await probeMapReady(tab.id)
+        if (probe.ready || isOsmTabUrl(tab.url)) {
+            setStatus('Site enabled. Use Enable to draw the overlay.')
+        } else {
+            setStatus(
+                'Site enabled, but no MapLibre/Mapbox map was found yet. Open a map view and try Enable.',
+                true,
+            )
+        }
+    } catch (error) {
+        setStatus(
+            error instanceof Error
+                ? error.message
+                : 'Failed to inject into this page.',
+            true,
+        )
     }
 })
 

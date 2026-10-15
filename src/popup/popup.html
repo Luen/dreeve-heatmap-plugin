@@ -74,6 +74,23 @@
                 Explorer tiles work on MapLibre / Mapbox hosts (gpx.studio,
                 Wanderstories). OpenStreetMap iD shows routes only.
             </p>
+            <div class="filter-header">
+                <label>This site</label>
+            </div>
+            <div class="checkbox-group layer-toggles">
+                <label
+                    id="siteEnabledLabel"
+                    class="checkbox-item"
+                    for="siteEnabled"
+                >
+                    <input id="siteEnabled" type="checkbox" checked />
+                    <span>Enable on this site</span>
+                </label>
+            </div>
+            <p id="siteHostNote" class="host-note">
+                Built-in hosts are on by default. On other sites, enable here
+                then Enable the overlay (MapLibre / Mapbox maps only).
+            </p>
             <div class="row">
                 <button id="toggle" type="button">Enable</button>
             </div>

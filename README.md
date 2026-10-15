@@ -5,6 +5,7 @@ Chrome extension that overlays your self-hosted [Dreeve](https://github.com/dree
 - `https://gpx.studio/*`
 - `https://studio.wanderstories.space/*`
 - `https://www.openstreetmap.org/edit` (OpenStreetMap iD editor)
+- Other http(s) pages with a MapLibre GL JS or Mapbox GL JS map (opt in via **Enable on this site** in the popup)
 
 <img width="338" height="400" alt="Screenshot of heatmap extension" src="https://github.com/user-attachments/assets/52317c33-42aa-462a-a810-3fe12c49bac8" />
 
@@ -26,6 +27,7 @@ Routes are loaded from `/api/internal/heatmap/routes`. Explorer tiles are loaded
 - Shared colour and opacity for routes and tiles; route width applies to lines only
 - Clicking a route opens a popup with activity details and links
 - Toggles overlay on/off from the extension popup
+- Per-site enable/disable (built-in hosts on by default; custom sites opt-in)
 - Supports filtering by high-level categories (`Ride`, `Walk`, `Water`, `Winter`) — applies to both routes and tiles
 - Automatically excludes virtual activities (`VirtualRide`, `VirtualRun`)
 - Supports the map engines / editors used by target sites:

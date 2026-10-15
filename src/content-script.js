@@ -13,7 +13,14 @@
         sportTypes: 'sportTypes',
         showRoutes: 'showRoutes',
         showTiles: 'showTiles',
+        siteEnabledByOrigin: 'siteEnabledByOrigin',
     }
+
+    const BUILT_IN_HOSTS = new Set([
+        'gpx.studio',
+        'studio.wanderstories.space',
+        'www.openstreetmap.org',
+    ])
 
     const CURRENT_ROUTES_PATH = '/api/internal/heatmap/routes'
     const CURRENT_TILES_PATH = '/api/internal/heatmap/tiles'
@@ -27,6 +34,54 @@
         [STORAGE_KEYS.sportTypes]: [],
         [STORAGE_KEYS.showRoutes]: true,
         [STORAGE_KEYS.showTiles]: true,
+        [STORAGE_KEYS.siteEnabledByOrigin]: {},
+    }
+
+    function normalizeSiteEnabledMap(raw) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            return {}
+        }
+        const normalized = {}
+        for (const [origin, value] of Object.entries(raw)) {
+            if (
+                typeof origin === 'string' &&
+                origin &&
+                typeof value === 'boolean'
+            ) {
+                normalized[origin] = value
+            }
+        }
+        return normalized
+    }
+
+    function isSiteEnabledForOrigin(origin, siteEnabledByOrigin) {
+        if (!origin) {
+            return false
+        }
+        const map = normalizeSiteEnabledMap(siteEnabledByOrigin)
+        if (Object.prototype.hasOwnProperty.call(map, origin)) {
+            return map[origin] === true
+        }
+        try {
+            return BUILT_IN_HOSTS.has(new URL(origin).hostname)
+        } catch {
+            return false
+        }
+    }
+
+    function currentPageOrigin() {
+        try {
+            return window.location.origin
+        } catch {
+            return ''
+        }
+    }
+
+    function isCurrentSiteEnabled(settings) {
+        return isSiteEnabledForOrigin(
+            currentPageOrigin(),
+            settings[STORAGE_KEYS.siteEnabledByOrigin],
+        )
     }
 
     const OVERLAY_STATE = {
@@ -522,6 +577,15 @@
     async function applyOverlay({ endpoint, enabled, forceRefresh = false }) {
         injectBridgeScript()
 
+        if (enabled) {
+            const settingsForSite = await getSettings()
+            if (!isCurrentSiteEnabled(settingsForSite)) {
+                throw new Error(
+                    'Extension is disabled on this site. Enable it in the popup.',
+                )
+            }
+        }
+
         if (!enabled) {
             const disableResult = await sendBridgeCommand({ action: 'disable' })
             if (!disableResult.ok) {
@@ -767,12 +831,31 @@
         })
         return false
     })
+
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+        if (!message || message.type !== 'PROBE_MAP') {
+            return undefined
+        }
+
+        injectBridgeScript()
+        sendBridgeCommand({ action: 'status' }).then((detail) => {
+            sendResponse({
+                ok: Boolean(detail?.ok),
+                ready: Boolean(detail?.ready),
+                error: detail?.error || '',
+            })
+        })
+        return true
+    })
     ;(async () => {
         // Inject immediately: OSM must restore #id-container before iD boots;
         // MapLibre/Mapbox sites need early constructor hooks.
         injectBridgeScript()
 
         const settings = await getSettings()
+        if (!isCurrentSiteEnabled(settings)) {
+            return
+        }
         const endpoint = String(settings[STORAGE_KEYS.endpoint] || '').trim()
         const enabled = Boolean(settings[STORAGE_KEYS.enabled])
         if (enabled) {

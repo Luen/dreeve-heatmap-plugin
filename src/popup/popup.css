@@ -76,6 +76,10 @@ input[type='color'] {
     cursor: not-allowed;
 }
 
+.checkbox-item.is-disabled span {
+    opacity: 0.9;
+}
+
 .host-note {
     margin: -4px 0 10px;
     color: #94a3b8;
