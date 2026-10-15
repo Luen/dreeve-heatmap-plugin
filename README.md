@@ -75,15 +75,17 @@ Requires **Node.js 20+**.
 2. Open the extension popup
 3. Enter your endpoint, for example:
     - `http://localhost:8000/api/internal/heatmap/routes`
-4. Optionally toggle **Show routes** / **Show tiles**
-5. Click **Save**
-6. Click **Enable** to draw the selected layers
+4. Optionally toggle **Show routes** / **Show tiles** (and other style/filters)
+5. Click **Enable** to draw the selected layers
+6. While enabled, further popup changes apply automatically
 7. Click **Disable** to remove the overlay
+
+Settings on the options page save automatically to storage and apply the next time you Enable (or when you change them from the popup while enabled).
 
 ### OpenStreetMap iD editor
 
 1. Open the iD editor: [https://www.openstreetmap.org/edit](https://www.openstreetmap.org/edit) (example with map: `https://www.openstreetmap.org/edit#map=16/48.82523/-125.13630`)
-2. Open the extension popup, set your endpoint, click **Save**, then **Enable**
+2. Open the extension popup, set your endpoint, then click **Enable**
 3. Press **B** (Background settings) and scroll to **Overlays**
 4. Toggle **Dreeve Routes** on/off in the overlays list
 5. Click **Disable** in the extension popup to unload route data and remove the overlay entry
@@ -115,5 +117,5 @@ Style/filter examples:
 ## Performance
 
 - Route and tile payloads are cached in the service worker (memory + `chrome.storage.session`) for about 20 minutes, with HTTP `ETag` / `If-None-Match` when the server supports it.
-- Re-enabling or saving while the overlay is on may reuse the cache; a fresh Enable after Disable still force-refreshes from the network.
+- Re-enabling or updating settings while the overlay is on may reuse the cache; a fresh Enable after Disable still force-refreshes from the network.
 - Style-only changes (color, opacity, width) update the map without re-fetching geometry.

@@ -15,6 +15,8 @@ const SPORT_TYPE_OPTIONS = [
     { value: 'Winter', label: 'Winter' },
 ]
 
+const DEBOUNCE_MS = 250
+
 const endpointInput = document.getElementById('endpoint')
 const lineColorInput = document.getElementById('lineColor')
 const lineOpacityInput = document.getElementById('lineOpacity')
@@ -24,8 +26,9 @@ const showRoutesInput = document.getElementById('showRoutes')
 const showTilesInput = document.getElementById('showTiles')
 const sportsSelectAllButton = document.getElementById('sportsSelectAll')
 const sportsClearAllButton = document.getElementById('sportsClearAll')
-const saveButton = document.getElementById('save')
 const statusEl = document.getElementById('status')
+
+let numberPersistTimer = null
 
 function setStatus(message, isError = false) {
     statusEl.textContent = message
@@ -110,17 +113,16 @@ function setAllSportTypeSelection(checked) {
     }
 }
 
-saveButton.addEventListener('click', async () => {
-    const endpoint = endpointInput.value.trim()
-    if (!isValidEndpoint(endpoint)) {
-        setStatus('Enter a valid http/https endpoint.', true)
-        return
-    }
-
+/**
+ * @param {{ includeEndpoint?: boolean }} [options]
+ */
+async function persistSettings(options = {}) {
+    const includeEndpoint = Boolean(options.includeEndpoint)
     const lineColor = String(lineColorInput.value || '').trim()
     const lineOpacity = Number(lineOpacityInput.value)
     const lineWidth = Number(lineWidthInput.value)
     const sportTypes = getSelectedSportTypes()
+    const inputEndpoint = endpointInput.value.trim()
 
     if (!/^#[0-9a-fA-F]{6}$/.test(lineColor)) {
         setStatus('Route color must be a valid hex color.', true)
@@ -139,24 +141,79 @@ saveButton.addEventListener('click', async () => {
         return
     }
 
-    await chrome.storage.sync.set({
-        [STORAGE_KEYS.endpoint]: endpoint,
+    if (includeEndpoint && !isValidEndpoint(inputEndpoint)) {
+        // Ignore empty/invalid blur; keep prior stored value.
+        return
+    }
+
+    const partial = {
         [STORAGE_KEYS.lineColor]: lineColor,
         [STORAGE_KEYS.lineOpacity]: lineOpacity,
         [STORAGE_KEYS.lineWidth]: lineWidth,
         [STORAGE_KEYS.sportTypes]: sportTypes,
         [STORAGE_KEYS.showRoutes]: Boolean(showRoutesInput.checked),
         [STORAGE_KEYS.showTiles]: Boolean(showTilesInput.checked),
-    })
+    }
+
+    if (includeEndpoint || isValidEndpoint(inputEndpoint)) {
+        partial[STORAGE_KEYS.endpoint] = inputEndpoint
+    }
+
+    await chrome.storage.sync.set(partial)
     setStatus('Settings saved.')
+}
+
+function debounceNumberPersist() {
+    if (numberPersistTimer) {
+        clearTimeout(numberPersistTimer)
+    }
+    numberPersistTimer = setTimeout(() => {
+        numberPersistTimer = null
+        void persistSettings()
+    }, DEBOUNCE_MS)
+}
+
+endpointInput.addEventListener('blur', () => {
+    void persistSettings({ includeEndpoint: true })
+})
+
+lineColorInput.addEventListener('input', () => {
+    void persistSettings()
+})
+
+lineOpacityInput.addEventListener('input', () => {
+    debounceNumberPersist()
+})
+
+lineWidthInput.addEventListener('input', () => {
+    debounceNumberPersist()
+})
+
+showRoutesInput.addEventListener('change', () => {
+    void persistSettings()
+})
+
+showTilesInput.addEventListener('change', () => {
+    void persistSettings()
+})
+
+sportTypesGroup.addEventListener('change', (event) => {
+    if (
+        event.target instanceof HTMLInputElement &&
+        event.target.type === 'checkbox'
+    ) {
+        void persistSettings()
+    }
 })
 
 sportsSelectAllButton.addEventListener('click', () => {
     setAllSportTypeSelection(true)
+    void persistSettings()
 })
 
 sportsClearAllButton.addEventListener('click', () => {
     setAllSportTypeSelection(false)
+    void persistSettings()
 })
 
 init().catch((error) => {

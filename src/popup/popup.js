@@ -16,6 +16,8 @@ const SPORT_TYPE_OPTIONS = [
     { value: 'Winter', label: 'Winter' },
 ]
 
+const DEBOUNCE_MS = 250
+
 const endpointInput = document.getElementById('endpoint')
 const lineColorInput = document.getElementById('lineColor')
 const lineOpacityInput = document.getElementById('lineOpacity')
@@ -25,10 +27,12 @@ const showRoutesInput = document.getElementById('showRoutes')
 const showTilesInput = document.getElementById('showTiles')
 const sportsSelectAllButton = document.getElementById('sportsSelectAll')
 const sportsClearAllButton = document.getElementById('sportsClearAll')
-const saveButton = document.getElementById('save')
 const toggleButton = document.getElementById('toggle')
 const statusEl = document.getElementById('status')
 const versionEl = document.getElementById('version')
+
+let numberPersistTimer = null
+let persistInFlight = null
 
 function formatOverlayCounts(response) {
     const routes = Number(response?.routeCount) || 0
@@ -309,84 +313,136 @@ function getStyleAndFilterInputValues() {
     }
 }
 
-saveButton.addEventListener('click', async () => {
-    const endpoint = endpointInput.value.trim()
-    if (!isValidEndpoint(endpoint)) {
-        setStatus('Enter a valid http/https endpoint URL.', true)
-        return
+function debounceNumberPersist() {
+    if (numberPersistTimer) {
+        clearTimeout(numberPersistTimer)
     }
+    numberPersistTimer = setTimeout(() => {
+        numberPersistTimer = null
+        void persistAndMaybeApply()
+    }, DEBOUNCE_MS)
+}
 
-    try {
-        const styleAndFilter = getStyleAndFilterInputValues()
+/**
+ * @param {{ includeEndpoint?: boolean }} [options]
+ */
+async function persistAndMaybeApply(options = {}) {
+    const includeEndpoint = Boolean(options.includeEndpoint)
+    const run = async () => {
+        let styleAndFilter
+        try {
+            styleAndFilter = getStyleAndFilterInputValues()
+        } catch (error) {
+            setStatus(
+                error instanceof Error
+                    ? error.message
+                    : 'Invalid style settings.',
+                true,
+            )
+            return
+        }
+
         const settings = await getSettings()
-        await saveSettings({
-            [STORAGE_KEYS.endpoint]: endpoint,
-            ...styleAndFilter,
-        })
+        const inputEndpoint = endpointInput.value.trim()
+        let endpoint = String(settings[STORAGE_KEYS.endpoint] || '').trim()
 
-        if (settings[STORAGE_KEYS.enabled]) {
-            const tab = await getActiveTab()
-            if (
-                tab &&
-                typeof tab.id === 'number' &&
-                isSupportedTabUrl(tab.url)
-            ) {
-                const endpointChanged =
-                    endpoint !== String(settings[STORAGE_KEYS.endpoint] || '')
-                const sportsChanged =
-                    JSON.stringify(styleAndFilter.sportTypes.slice().sort()) !==
-                    JSON.stringify(
-                        normalizeSportTypes(
-                            settings[STORAGE_KEYS.sportTypes],
-                        ).sort(),
-                    )
-                const forceRefresh = endpointChanged || sportsChanged
-                let response = await sendApplyToTab(
+        if (includeEndpoint) {
+            if (!isValidEndpoint(inputEndpoint)) {
+                // Ignore empty/invalid blur; keep prior stored value.
+                return
+            }
+            endpoint = inputEndpoint
+        } else if (isValidEndpoint(inputEndpoint)) {
+            endpoint = inputEndpoint
+        }
+
+        const partial = { ...styleAndFilter }
+        if (includeEndpoint || isValidEndpoint(inputEndpoint)) {
+            partial[STORAGE_KEYS.endpoint] = endpoint
+        }
+
+        await saveSettings(partial)
+
+        if (!settings[STORAGE_KEYS.enabled]) {
+            setStatus('Settings saved.')
+            return
+        }
+
+        if (!isValidEndpoint(endpoint)) {
+            setStatus('Settings saved.')
+            return
+        }
+
+        const tab = await getActiveTab()
+        if (!tab || typeof tab.id !== 'number' || !isSupportedTabUrl(tab.url)) {
+            setStatus('Settings saved.')
+            return
+        }
+
+        const endpointChanged =
+            endpoint !== String(settings[STORAGE_KEYS.endpoint] || '')
+        const sportsChanged =
+            JSON.stringify(styleAndFilter.sportTypes.slice().sort()) !==
+            JSON.stringify(
+                normalizeSportTypes(settings[STORAGE_KEYS.sportTypes]).sort(),
+            )
+        const forceRefresh = endpointChanged || sportsChanged
+
+        let response = await sendApplyToTab(
+            tab.id,
+            endpoint,
+            true,
+            forceRefresh,
+        )
+        if (
+            !response.ok &&
+            String(response.error || '')
+                .toLowerCase()
+                .includes('receiving end does not exist')
+        ) {
+            try {
+                await ensureContentScript(tab.id)
+                response = await sendApplyToTab(
                     tab.id,
                     endpoint,
                     true,
                     forceRefresh,
                 )
-                if (
-                    !response.ok &&
-                    String(response.error || '')
-                        .toLowerCase()
-                        .includes('receiving end does not exist')
-                ) {
-                    await ensureContentScript(tab.id)
-                    response = await sendApplyToTab(
-                        tab.id,
-                        endpoint,
-                        true,
-                        forceRefresh,
-                    )
-                }
-
-                if (!response.ok) {
-                    setStatus(
-                        response.error ||
-                            'Settings saved, but failed to refresh overlay.',
-                        true,
-                    )
-                    return
-                }
-
+            } catch (error) {
                 setStatus(
-                    `Settings saved and overlay refreshed (${formatOverlayCounts(response)}).`,
-                    Boolean(response.tilesWarning),
+                    error instanceof Error
+                        ? error.message
+                        : 'Settings saved, but failed to refresh overlay.',
+                    true,
                 )
                 return
             }
         }
-    } catch (error) {
+
+        if (!response.ok) {
+            setStatus(
+                response.error ||
+                    'Settings saved, but failed to refresh overlay.',
+                true,
+            )
+            return
+        }
+
         setStatus(
-            error instanceof Error ? error.message : 'Invalid style settings.',
-            true,
+            `Settings updated (${formatOverlayCounts(response)}).`,
+            Boolean(response.tilesWarning),
         )
-        return
     }
-    setStatus('Endpoint saved.')
-})
+
+    const previous = persistInFlight
+    persistInFlight = (async () => {
+        if (previous) {
+            await previous.catch(() => {})
+        }
+        await run()
+    })()
+    await persistInFlight
+}
 
 toggleButton.addEventListener('click', async () => {
     const tab = await getActiveTab()
@@ -410,7 +466,7 @@ toggleButton.addEventListener('click', async () => {
     const nextEnabled = !currentlyEnabled
 
     if (nextEnabled && !isValidEndpoint(endpoint)) {
-        setStatus('Save a valid endpoint before enabling overlay.', true)
+        setStatus('Enter a valid endpoint before enabling overlay.', true)
         return
     }
 
@@ -480,12 +536,47 @@ toggleButton.addEventListener('click', async () => {
     }
 })
 
+endpointInput.addEventListener('blur', () => {
+    void persistAndMaybeApply({ includeEndpoint: true })
+})
+
+lineColorInput.addEventListener('input', () => {
+    void persistAndMaybeApply()
+})
+
+lineOpacityInput.addEventListener('input', () => {
+    debounceNumberPersist()
+})
+
+lineWidthInput.addEventListener('input', () => {
+    debounceNumberPersist()
+})
+
+showRoutesInput.addEventListener('change', () => {
+    void persistAndMaybeApply()
+})
+
+showTilesInput.addEventListener('change', () => {
+    void persistAndMaybeApply()
+})
+
+sportTypesGroup.addEventListener('change', (event) => {
+    if (
+        event.target instanceof HTMLInputElement &&
+        event.target.type === 'checkbox'
+    ) {
+        void persistAndMaybeApply()
+    }
+})
+
 sportsSelectAllButton.addEventListener('click', () => {
     setAllSportTypeSelection(true)
+    void persistAndMaybeApply()
 })
 
 sportsClearAllButton.addEventListener('click', () => {
     setAllSportTypeSelection(false)
+    void persistAndMaybeApply()
 })
 
 initialize().catch((error) => {
