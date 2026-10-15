@@ -17,17 +17,27 @@
         fullRoutes: null,
         /** @type {unknown[] | null} */
         fullTileIds: null,
+        /** @type {{ route: unknown, bbox: { minX: number, minY: number, maxX: number, maxY: number } | null }[] | null} */
+        routeEntries: null,
         zoomBand: '',
         routesEffective: false,
+        visibleSetKey: '',
         zoomEndHandler: null,
-        zoomEndTimer: null,
+        moveEndHandler: null,
+        viewChangeTimer: null,
     }
 
     const ROUTES_MIN_ZOOM = 11
     const ZOOM_BAND_OVERVIEW = 'overview'
     const ZOOM_BAND_MID = 'mid'
     const ZOOM_BAND_DETAIL = 'detail'
-    const ZOOM_END_DEBOUNCE_MS = 150
+    const VIEW_CHANGE_DEBOUNCE_MS = 150
+    const VIEWPORT_PAD_RATIO = 0.2
+    const MAX_POINTS_BY_BAND = {
+        [ZOOM_BAND_OVERVIEW]: 200,
+        [ZOOM_BAND_MID]: 800,
+        [ZOOM_BAND_DETAIL]: 2000,
+    }
 
     const SOURCE_ID = 'strava-routes-source'
     const LAYER_ID = 'strava-routes-layer'
@@ -102,23 +112,32 @@
         return Boolean(showRoutes) && zoom >= ROUTES_MIN_ZOOM
     }
 
-    function bindZoomLodListener(map) {
+    function scheduleViewRefresh() {
+        if (STATE.viewChangeTimer) {
+            clearTimeout(STATE.viewChangeTimer)
+        }
+        STATE.viewChangeTimer = setTimeout(() => {
+            STATE.viewChangeTimer = null
+            refreshLodIfNeeded()
+        }, VIEW_CHANGE_DEBOUNCE_MS)
+    }
+
+    function bindViewLodListeners(map) {
         if (!map || typeof map.on !== 'function') {
             return
         }
-        if (STATE.zoomEndHandler && typeof map.off === 'function') {
-            map.off('zoomend', STATE.zoomEndHandler)
-        }
-        STATE.zoomEndHandler = () => {
-            if (STATE.zoomEndTimer) {
-                clearTimeout(STATE.zoomEndTimer)
+        if (typeof map.off === 'function') {
+            if (STATE.zoomEndHandler) {
+                map.off('zoomend', STATE.zoomEndHandler)
             }
-            STATE.zoomEndTimer = setTimeout(() => {
-                STATE.zoomEndTimer = null
-                refreshLodIfNeeded()
-            }, ZOOM_END_DEBOUNCE_MS)
+            if (STATE.moveEndHandler) {
+                map.off('moveend', STATE.moveEndHandler)
+            }
         }
+        STATE.zoomEndHandler = () => scheduleViewRefresh()
+        STATE.moveEndHandler = () => scheduleViewRefresh()
         map.on('zoomend', STATE.zoomEndHandler)
+        map.on('moveend', STATE.moveEndHandler)
     }
 
     function setMapInstance(map) {
@@ -127,7 +146,83 @@
         }
         STATE.map = map
         STATE.ready = true
-        bindZoomLodListener(map)
+        bindViewLodListeners(map)
+    }
+
+    function computeGeoBbox(coordinates) {
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+        for (let i = 0; i < coordinates.length; i += 1) {
+            const coord = coordinates[i]
+            if (!Array.isArray(coord) || coord.length < 2) {
+                continue
+            }
+            const x = coord[0]
+            const y = coord[1]
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                continue
+            }
+            if (x < minX) minX = x
+            if (y < minY) minY = y
+            if (x > maxX) maxX = x
+            if (y > maxY) maxY = y
+        }
+        if (!Number.isFinite(minX)) {
+            return null
+        }
+        return { minX, minY, maxX, maxY }
+    }
+
+    function bboxesIntersect(a, b) {
+        if (!a || !b) {
+            return true
+        }
+        return !(
+            a.maxX < b.minX ||
+            a.minX > b.maxX ||
+            a.maxY < b.minY ||
+            a.minY > b.maxY
+        )
+    }
+
+    function paddedViewportBbox() {
+        if (!STATE.map || typeof STATE.map.getBounds !== 'function') {
+            return null
+        }
+        const bounds = STATE.map.getBounds()
+        if (!bounds || typeof bounds.getWest !== 'function') {
+            return null
+        }
+        const west = bounds.getWest()
+        const south = bounds.getSouth()
+        const east = bounds.getEast()
+        const north = bounds.getNorth()
+        if (
+            ![west, south, east, north].every((value) => Number.isFinite(value))
+        ) {
+            return null
+        }
+        const padX = Math.max(0.01, (east - west) * VIEWPORT_PAD_RATIO)
+        const padY = Math.max(0.01, (north - south) * VIEWPORT_PAD_RATIO)
+        return {
+            minX: west - padX,
+            minY: south - padY,
+            maxX: east + padX,
+            maxY: north + padY,
+        }
+    }
+
+    function indexRoutes(routes) {
+        return (Array.isArray(routes) ? routes : []).map((route) => {
+            const points = Array.isArray(route?.points) ? route.points : []
+            return { route, bbox: computeGeoBbox(points) }
+        })
+    }
+
+    function maxPointsForBand(band) {
+        return MAX_POINTS_BY_BAND[band] || MAX_POINTS_BY_BAND[ZOOM_BAND_DETAIL]
     }
 
     function hookConstructor(globalName) {
@@ -297,11 +392,13 @@
         STATE.showTiles = true
         STATE.fullRoutes = null
         STATE.fullTileIds = null
+        STATE.routeEntries = null
         STATE.zoomBand = ''
         STATE.routesEffective = false
-        if (STATE.zoomEndTimer) {
-            clearTimeout(STATE.zoomEndTimer)
-            STATE.zoomEndTimer = null
+        STATE.visibleSetKey = ''
+        if (STATE.viewChangeTimer) {
+            clearTimeout(STATE.viewChangeTimer)
+            STATE.viewChangeTimer = null
         }
     }
 
@@ -322,31 +419,42 @@
         return simplified
     }
 
-    function toGeoJsonLineCollection(routes) {
+    function toGeoJsonLineCollection(routeEntries, options = {}) {
+        const maxPoints =
+            Number(options.maxPoints) > 0 ? Number(options.maxPoints) : 2000
+        const viewport = options.viewportBbox || null
+        const entries = Array.isArray(routeEntries) ? routeEntries : []
+        const features = []
+        for (let index = 0; index < entries.length; index += 1) {
+            const entry = entries[index]
+            const route = entry?.route || entry
+            const bbox = entry?.bbox || null
+            if (viewport && bbox && !bboxesIntersect(bbox, viewport)) {
+                continue
+            }
+            const points = Array.isArray(route.points) ? route.points : []
+            features.push({
+                type: 'Feature',
+                id: route.id || `route-${index}`,
+                properties: {
+                    activityId: route?.metadata?.activityId || route.id || '',
+                    name: route?.metadata?.name || '',
+                    startDate: route?.metadata?.startDate || '',
+                    distance: route?.metadata?.distance || '',
+                    sportType: route?.metadata?.sportType || '',
+                    activityUrl: route?.metadata?.activityUrl || '',
+                    stravaUrl: route?.metadata?.stravaUrl || '',
+                },
+                geometry: {
+                    type: 'LineString',
+                    // points are already [lng, lat]
+                    coordinates: simplifyLine(points, maxPoints),
+                },
+            })
+        }
         return {
             type: 'FeatureCollection',
-            features: routes.map((route, index) => {
-                const points = Array.isArray(route.points) ? route.points : []
-                return {
-                    type: 'Feature',
-                    id: route.id || `route-${index}`,
-                    properties: {
-                        activityId:
-                            route?.metadata?.activityId || route.id || '',
-                        name: route?.metadata?.name || '',
-                        startDate: route?.metadata?.startDate || '',
-                        distance: route?.metadata?.distance || '',
-                        sportType: route?.metadata?.sportType || '',
-                        activityUrl: route?.metadata?.activityUrl || '',
-                        stravaUrl: route?.metadata?.stravaUrl || '',
-                    },
-                    geometry: {
-                        type: 'LineString',
-                        // points are already [lng, lat]
-                        coordinates: simplifyLine(points, 2000),
-                    },
-                }
-            }),
+            features,
         }
     }
 
@@ -601,6 +709,7 @@
                     ],
                 ],
             },
+            _bbox: { minX: west, minY: south, maxX: east, maxY: north },
         }
     }
 
@@ -611,6 +720,7 @@
         }
 
         const omitVisitedFills = Boolean(options.omitVisitedFills)
+        const viewport = options.viewportBbox || null
         const visitedTiles = new Set(
             (Array.isArray(tileIds) ? tileIds : [])
                 .map((id) => Number(id))
@@ -629,7 +739,16 @@
             if (omitVisitedFills && tier === 'visited') {
                 continue
             }
-            features.push(tilePolygonFeature(tile, tier, explorer))
+            const feature = tilePolygonFeature(tile, tier, explorer)
+            if (
+                viewport &&
+                feature._bbox &&
+                !bboxesIntersect(feature._bbox, viewport)
+            ) {
+                continue
+            }
+            delete feature._bbox
+            features.push(feature)
         }
 
         let maxSquareCollection = emptyFeatureCollection()
@@ -931,15 +1050,40 @@
         )
     }
 
+    function visibleSetKey(routeEntries, tileIds, viewport, band, routesOn) {
+        const routes = Array.isArray(routeEntries) ? routeEntries : []
+        let routeBits = 0
+        if (routesOn) {
+            for (let i = 0; i < routes.length; i += 1) {
+                const bbox = routes[i]?.bbox
+                if (!viewport || !bbox || bboxesIntersect(bbox, viewport)) {
+                    routeBits += 1
+                }
+            }
+        }
+        const tiles = Array.isArray(tileIds) ? tileIds : []
+        // Tile visibility is recomputed in buildTilesGeoJson; key by count + band.
+        return `${band}|r${routesOn ? 1 : 0}|rc${routeBits}|tc${tiles.length}|v${viewport ? `${viewport.minX.toFixed(3)},${viewport.minY.toFixed(3)},${viewport.maxX.toFixed(3)},${viewport.maxY.toFixed(3)}` : 'all'}`
+    }
+
     function refreshLodIfNeeded() {
         if (!STATE.overlayApplied || !STATE.map) {
             return
         }
         const nextBand = zoomBandForZoom(currentMapZoom())
         const routesWanted = effectiveShowRoutes(STATE.showRoutes)
+        const viewport = paddedViewportBbox()
+        const nextKey = visibleSetKey(
+            STATE.routeEntries,
+            STATE.fullTileIds,
+            viewport,
+            nextBand,
+            routesWanted,
+        )
         if (
             nextBand === STATE.zoomBand &&
-            routesWanted === STATE.routesEffective
+            routesWanted === STATE.routesEffective &&
+            nextKey === STATE.visibleSetKey
         ) {
             return
         }
@@ -963,10 +1107,11 @@
         if (!options.reuseCache) {
             STATE.fullRoutes = Array.isArray(routes) ? routes : []
             STATE.fullTileIds = Array.isArray(tileIds) ? tileIds : []
+            STATE.routeEntries = indexRoutes(STATE.fullRoutes)
         }
 
-        const routeList = Array.isArray(STATE.fullRoutes)
-            ? STATE.fullRoutes
+        const routeEntries = Array.isArray(STATE.routeEntries)
+            ? STATE.routeEntries
             : []
         const tileIdList = Array.isArray(STATE.fullTileIds)
             ? STATE.fullTileIds
@@ -976,9 +1121,20 @@
         STATE.zoomBand = band
         const routesEffective = effectiveShowRoutes(STATE.showRoutes, zoom)
         STATE.routesEffective = routesEffective
+        const viewport = paddedViewportBbox()
+        STATE.visibleSetKey = visibleSetKey(
+            routeEntries,
+            tileIdList,
+            viewport,
+            band,
+            routesEffective,
+        )
         const normalizedStyle = normalizeStyle(style)
         const routeData = routesEffective
-            ? toGeoJsonLineCollection(routeList)
+            ? toGeoJsonLineCollection(routeEntries, {
+                  maxPoints: maxPointsForBand(band),
+                  viewportBbox: viewport,
+              })
             : emptyFeatureCollection()
 
         let tilesData = emptyFeatureCollection()
@@ -987,6 +1143,7 @@
         if (STATE.showTiles) {
             const built = buildTilesGeoJson(tileIdList, {
                 omitVisitedFills: band === ZOOM_BAND_OVERVIEW,
+                viewportBbox: viewport,
             })
             tilesData = built.tiles
             maxSquareData = built.maxSquare
@@ -1033,14 +1190,14 @@
         ensureRouteLayers(normalizedStyle)
         applyPaintStyle(normalizedStyle)
 
-        if (routesEffective && routeList.length > 0) {
+        if (routesEffective && routeData.features.length > 0) {
             bindLayerInteractions()
         }
 
         STATE.overlayApplied = true
         STATE.style = normalizedStyle
         return {
-            routeCount: routesEffective ? routeList.length : 0,
+            routeCount: routesEffective ? routeData.features.length : 0,
             tileCount,
         }
     }
