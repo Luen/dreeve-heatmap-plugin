@@ -11,11 +11,32 @@
         mouseLeaveHandler: null,
         mouseMoveHandler: null,
         style: null,
+        showRoutes: true,
+        showTiles: true,
     }
 
     const SOURCE_ID = 'strava-routes-source'
     const LAYER_ID = 'strava-routes-layer'
     const HITBOX_LAYER_ID = 'strava-routes-hitbox-layer'
+    const TILES_SOURCE_ID = 'strava-tiles-source'
+    const TILES_MAX_SQUARE_SOURCE_ID = 'strava-tiles-max-square-source'
+    const TILES_VISITED_FILL_ID = 'strava-tiles-visited-fill'
+    const TILES_VISITED_LINE_ID = 'strava-tiles-visited-line'
+    const TILES_CLUSTER_FILL_ID = 'strava-tiles-cluster-fill'
+    const TILES_CLUSTER_LINE_ID = 'strava-tiles-cluster-line'
+    const TILES_MAX_CLUSTER_FILL_ID = 'strava-tiles-max-cluster-fill'
+    const TILES_MAX_CLUSTER_LINE_ID = 'strava-tiles-max-cluster-line'
+    const TILES_MAX_SQUARE_LINE_ID = 'strava-tiles-max-square-line'
+    const TILE_LAYER_IDS = [
+        TILES_VISITED_FILL_ID,
+        TILES_VISITED_LINE_ID,
+        TILES_CLUSTER_FILL_ID,
+        TILES_CLUSTER_LINE_ID,
+        TILES_MAX_CLUSTER_FILL_ID,
+        TILES_MAX_CLUSTER_LINE_ID,
+        TILES_MAX_SQUARE_LINE_ID,
+    ]
+    const DEFAULT_ROUTE_OPACITY = 0.35
     const EVENT_REQUEST = 'STRAVA_OVERLAY_REQUEST'
     const EVENT_RESPONSE = 'STRAVA_OVERLAY_RESPONSE'
     const KNOWN_MAP_GLOBALS = [
@@ -157,13 +178,42 @@
         }
     }
 
-    function removeOverlay() {
+    function getExplorerTilesApi() {
+        return globalThis.DreeveExplorerTiles || null
+    }
+
+    function emptyFeatureCollection() {
+        return { type: 'FeatureCollection', features: [] }
+    }
+
+    function scaleOpacity(tierOpacity, lineOpacity) {
+        return Math.max(
+            0,
+            Math.min(1, (lineOpacity * tierOpacity) / DEFAULT_ROUTE_OPACITY),
+        )
+    }
+
+    function removeTileLayersAndSources() {
         if (!STATE.map) {
             return
         }
-        hidePopup()
-        hideTooltip()
-        unbindLayerInteractions()
+        for (const layerId of TILE_LAYER_IDS) {
+            if (STATE.map.getLayer(layerId)) {
+                STATE.map.removeLayer(layerId)
+            }
+        }
+        if (STATE.map.getSource(TILES_SOURCE_ID)) {
+            STATE.map.removeSource(TILES_SOURCE_ID)
+        }
+        if (STATE.map.getSource(TILES_MAX_SQUARE_SOURCE_ID)) {
+            STATE.map.removeSource(TILES_MAX_SQUARE_SOURCE_ID)
+        }
+    }
+
+    function removeRouteLayersAndSources() {
+        if (!STATE.map) {
+            return
+        }
         if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
             STATE.map.removeLayer(HITBOX_LAYER_ID)
         }
@@ -173,8 +223,21 @@
         if (STATE.map.getSource(SOURCE_ID)) {
             STATE.map.removeSource(SOURCE_ID)
         }
+    }
+
+    function removeOverlay() {
+        if (!STATE.map) {
+            return
+        }
+        hidePopup()
+        hideTooltip()
+        unbindLayerInteractions()
+        removeRouteLayersAndSources()
+        removeTileLayersAndSources()
         STATE.overlayApplied = false
         STATE.style = null
+        STATE.showRoutes = true
+        STATE.showTiles = true
     }
 
     function simplifyLine(coordinates, maxPoints) {
@@ -456,6 +519,152 @@
         STATE.map.on('click', STATE.mapClickHandler)
     }
 
+    function tilePolygonFeature(tileId, tier, explorer) {
+        const [[south, west], [north, east]] = explorer.tileBounds(tileId)
+        return {
+            type: 'Feature',
+            properties: { tier },
+            geometry: {
+                type: 'Polygon',
+                coordinates: [
+                    [
+                        [west, north],
+                        [east, north],
+                        [east, south],
+                        [west, south],
+                        [west, north],
+                    ],
+                ],
+            },
+        }
+    }
+
+    function buildTilesGeoJson(tileIds) {
+        const explorer = getExplorerTilesApi()
+        if (!explorer) {
+            throw new Error('Explorer tiles module is not loaded.')
+        }
+
+        const visitedTiles = new Set(
+            (Array.isArray(tileIds) ? tileIds : [])
+                .map((id) => Number(id))
+                .filter((id) => Number.isFinite(id)),
+        )
+        const { clusterTiles, maxCluster } = explorer.clusters(visitedTiles)
+        const features = []
+
+        for (const tile of visitedTiles) {
+            let tier = 'visited'
+            if (maxCluster.has(tile)) {
+                tier = 'maxCluster'
+            } else if (clusterTiles.has(tile)) {
+                tier = 'cluster'
+            }
+            features.push(tilePolygonFeature(tile, tier, explorer))
+        }
+
+        let maxSquareCollection = emptyFeatureCollection()
+        const square = explorer.maxSquare(visitedTiles)
+        if (square && square.size > 0) {
+            const sw = explorer.tileBounds(explorer.tileKey(square.x, square.y))
+            const ne = explorer.tileBounds(
+                explorer.tileKey(
+                    square.x + square.size - 1,
+                    square.y + square.size - 1,
+                ),
+            )
+            const south = sw[0][0]
+            const west = sw[0][1]
+            const north = ne[1][0]
+            const east = ne[1][1]
+            maxSquareCollection = {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: { tier: 'maxSquare' },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [
+                                [
+                                    [west, north],
+                                    [east, north],
+                                    [east, south],
+                                    [west, south],
+                                    [west, north],
+                                ],
+                            ],
+                        },
+                    },
+                ],
+            }
+        }
+
+        return {
+            tiles: { type: 'FeatureCollection', features },
+            maxSquare: maxSquareCollection,
+            tileCount: visitedTiles.size,
+        }
+    }
+
+    function applyTilePaintStyle(normalizedStyle) {
+        if (!STATE.map) {
+            return
+        }
+        const color = normalizedStyle.lineColor
+        const opacity = normalizedStyle.lineOpacity
+        const borderOpacity = scaleOpacity(0.5, opacity)
+
+        const fillSpecs = [
+            [TILES_VISITED_FILL_ID, 0.15],
+            [TILES_CLUSTER_FILL_ID, 0.35],
+            [TILES_MAX_CLUSTER_FILL_ID, 0.55],
+        ]
+        for (const [layerId, tier] of fillSpecs) {
+            if (!STATE.map.getLayer(layerId)) {
+                continue
+            }
+            STATE.map.setPaintProperty(layerId, 'fill-color', color)
+            STATE.map.setPaintProperty(
+                layerId,
+                'fill-opacity',
+                scaleOpacity(tier, opacity),
+            )
+        }
+
+        const lineSpecs = [
+            TILES_VISITED_LINE_ID,
+            TILES_CLUSTER_LINE_ID,
+            TILES_MAX_CLUSTER_LINE_ID,
+        ]
+        for (const layerId of lineSpecs) {
+            if (!STATE.map.getLayer(layerId)) {
+                continue
+            }
+            STATE.map.setPaintProperty(layerId, 'line-color', color)
+            STATE.map.setPaintProperty(layerId, 'line-opacity', borderOpacity)
+            STATE.map.setPaintProperty(layerId, 'line-width', 1)
+        }
+
+        if (STATE.map.getLayer(TILES_MAX_SQUARE_LINE_ID)) {
+            STATE.map.setPaintProperty(
+                TILES_MAX_SQUARE_LINE_ID,
+                'line-color',
+                color,
+            )
+            STATE.map.setPaintProperty(
+                TILES_MAX_SQUARE_LINE_ID,
+                'line-opacity',
+                scaleOpacity(1, opacity),
+            )
+            STATE.map.setPaintProperty(
+                TILES_MAX_SQUARE_LINE_ID,
+                'line-width',
+                3,
+            )
+        }
+    }
+
     function applyPaintStyle(normalizedStyle) {
         if (!STATE.map) {
             return
@@ -485,11 +694,81 @@
                 hitboxWidth,
             )
         }
+        applyTilePaintStyle(normalizedStyle)
         STATE.style = normalizedStyle
     }
 
-    function ensureLayers(normalizedStyle) {
+    function ensureTileLayers(normalizedStyle) {
+        const color = normalizedStyle.lineColor
+        const opacity = normalizedStyle.lineOpacity
+        const borderOpacity = scaleOpacity(0.5, opacity)
+
+        const addFill = (id, tier, fillOpacity) => {
+            if (STATE.map.getLayer(id)) {
+                return
+            }
+            STATE.map.addLayer({
+                id,
+                type: 'fill',
+                source: TILES_SOURCE_ID,
+                filter: ['==', ['get', 'tier'], tier],
+                paint: {
+                    'fill-color': color,
+                    'fill-opacity': scaleOpacity(fillOpacity, opacity),
+                },
+                layout: {
+                    visibility: STATE.showTiles ? 'visible' : 'none',
+                },
+            })
+        }
+
+        const addLine = (id, tier) => {
+            if (STATE.map.getLayer(id)) {
+                return
+            }
+            STATE.map.addLayer({
+                id,
+                type: 'line',
+                source: TILES_SOURCE_ID,
+                filter: ['==', ['get', 'tier'], tier],
+                paint: {
+                    'line-color': color,
+                    'line-opacity': borderOpacity,
+                    'line-width': 1,
+                },
+                layout: {
+                    visibility: STATE.showTiles ? 'visible' : 'none',
+                },
+            })
+        }
+
+        addFill(TILES_VISITED_FILL_ID, 'visited', 0.15)
+        addLine(TILES_VISITED_LINE_ID, 'visited')
+        addFill(TILES_CLUSTER_FILL_ID, 'cluster', 0.35)
+        addLine(TILES_CLUSTER_LINE_ID, 'cluster')
+        addFill(TILES_MAX_CLUSTER_FILL_ID, 'maxCluster', 0.55)
+        addLine(TILES_MAX_CLUSTER_LINE_ID, 'maxCluster')
+
+        if (!STATE.map.getLayer(TILES_MAX_SQUARE_LINE_ID)) {
+            STATE.map.addLayer({
+                id: TILES_MAX_SQUARE_LINE_ID,
+                type: 'line',
+                source: TILES_MAX_SQUARE_SOURCE_ID,
+                paint: {
+                    'line-color': color,
+                    'line-opacity': scaleOpacity(1, opacity),
+                    'line-width': 3,
+                },
+                layout: {
+                    visibility: STATE.showTiles ? 'visible' : 'none',
+                },
+            })
+        }
+    }
+
+    function ensureRouteLayers(normalizedStyle) {
         const hitboxWidth = Math.max(normalizedStyle.lineWidth + 8, 12)
+        const visibility = STATE.showRoutes ? 'visible' : 'none'
 
         if (!STATE.map.getLayer(HITBOX_LAYER_ID)) {
             STATE.map.addLayer({
@@ -504,6 +783,7 @@
                 layout: {
                     'line-cap': 'round',
                     'line-join': 'round',
+                    visibility,
                 },
             })
         }
@@ -521,52 +801,105 @@
                 layout: {
                     'line-cap': 'round',
                     'line-join': 'round',
+                    visibility,
                 },
             })
         } else {
             applyPaintStyle(normalizedStyle)
         }
+
+        if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
+            STATE.map.setLayoutProperty(
+                HITBOX_LAYER_ID,
+                'visibility',
+                visibility,
+            )
+        }
+        if (STATE.map.getLayer(LAYER_ID)) {
+            STATE.map.setLayoutProperty(LAYER_ID, 'visibility', visibility)
+        }
     }
 
-    function drawOverlay(routes, style) {
+    function setTileLayersVisibility(visible) {
+        const visibility = visible ? 'visible' : 'none'
+        for (const layerId of TILE_LAYER_IDS) {
+            if (STATE.map.getLayer(layerId)) {
+                STATE.map.setLayoutProperty(layerId, 'visibility', visibility)
+            }
+        }
+    }
+
+    function drawOverlay(routes, tileIds, style, showRoutes, showTiles) {
         if (!STATE.map) {
             throw new Error('Map instance is not ready yet.')
         }
 
-        const data = toGeoJsonLineCollection(routes)
-        const normalizedStyle = normalizeStyle(style)
-        const existingSource = STATE.map.getSource(SOURCE_ID)
+        STATE.showRoutes = Boolean(showRoutes)
+        STATE.showTiles = Boolean(showTiles)
 
-        if (existingSource && typeof existingSource.setData === 'function') {
-            existingSource.setData(data)
-            ensureLayers(normalizedStyle)
-            applyPaintStyle(normalizedStyle)
-            bindLayerInteractions()
-            STATE.overlayApplied = true
-            return
+        const routeList = Array.isArray(routes) ? routes : []
+        const normalizedStyle = normalizeStyle(style)
+        const routeData = STATE.showRoutes
+            ? toGeoJsonLineCollection(routeList)
+            : emptyFeatureCollection()
+
+        let tilesData = emptyFeatureCollection()
+        let maxSquareData = emptyFeatureCollection()
+        let tileCount = 0
+        if (STATE.showTiles) {
+            const built = buildTilesGeoJson(tileIds)
+            tilesData = built.tiles
+            maxSquareData = built.maxSquare
+            tileCount = built.tileCount
         }
 
         hidePopup()
         hideTooltip()
         unbindLayerInteractions()
-        if (STATE.map.getLayer(HITBOX_LAYER_ID)) {
-            STATE.map.removeLayer(HITBOX_LAYER_ID)
+
+        // Keep tiles under routes: remove routes, ensure tiles, then routes.
+        removeRouteLayersAndSources()
+
+        const tilesSource = STATE.map.getSource(TILES_SOURCE_ID)
+        const maxSquareSource = STATE.map.getSource(TILES_MAX_SQUARE_SOURCE_ID)
+        if (
+            tilesSource &&
+            typeof tilesSource.setData === 'function' &&
+            maxSquareSource &&
+            typeof maxSquareSource.setData === 'function'
+        ) {
+            tilesSource.setData(tilesData)
+            maxSquareSource.setData(maxSquareData)
+        } else {
+            removeTileLayersAndSources()
+            STATE.map.addSource(TILES_SOURCE_ID, {
+                type: 'geojson',
+                data: tilesData,
+            })
+            STATE.map.addSource(TILES_MAX_SQUARE_SOURCE_ID, {
+                type: 'geojson',
+                data: maxSquareData,
+            })
         }
-        if (STATE.map.getLayer(LAYER_ID)) {
-            STATE.map.removeLayer(LAYER_ID)
-        }
-        if (STATE.map.getSource(SOURCE_ID)) {
-            STATE.map.removeSource(SOURCE_ID)
-        }
+
+        ensureTileLayers(normalizedStyle)
+        setTileLayersVisibility(STATE.showTiles)
+        applyTilePaintStyle(normalizedStyle)
 
         STATE.map.addSource(SOURCE_ID, {
             type: 'geojson',
-            data,
+            data: routeData,
         })
-        ensureLayers(normalizedStyle)
-        bindLayerInteractions()
+        ensureRouteLayers(normalizedStyle)
+        applyPaintStyle(normalizedStyle)
+
+        if (STATE.showRoutes && routeList.length > 0) {
+            bindLayerInteractions()
+        }
+
         STATE.overlayApplied = true
         STATE.style = normalizedStyle
+        return { routeCount: routeList.length, tileCount }
     }
 
     function updateOverlayStyle(style) {
@@ -637,16 +970,47 @@
             }
 
             const routes = Array.isArray(detail.routes) ? detail.routes : []
-            if (!routes.length) {
-                throw new Error('No routes to draw.')
+            const tileIds = Array.isArray(detail.tileIds) ? detail.tileIds : []
+            const showRoutes = detail.showRoutes !== false
+            const showTiles = detail.showTiles === true
+
+            if (!showRoutes && !showTiles) {
+                removeOverlay()
+                STATE.overlayApplied = true
+                postResponse({
+                    requestId,
+                    ok: true,
+                    enabled: true,
+                    routeCount: 0,
+                    tileCount: 0,
+                })
+                return
             }
 
-            drawOverlay(routes, detail.style)
+            if (
+                (showRoutes && routes.length === 0 && !showTiles) ||
+                (showTiles && tileIds.length === 0 && !showRoutes) ||
+                (showRoutes &&
+                    routes.length === 0 &&
+                    showTiles &&
+                    tileIds.length === 0)
+            ) {
+                throw new Error('Nothing to draw for the selected layers.')
+            }
+
+            const counts = drawOverlay(
+                routes,
+                tileIds,
+                detail.style,
+                showRoutes,
+                showTiles,
+            )
             postResponse({
                 requestId,
                 ok: true,
                 enabled: true,
-                routeCount: routes.length,
+                routeCount: counts.routeCount,
+                tileCount: counts.tileCount,
             })
         } catch (error) {
             postResponse({

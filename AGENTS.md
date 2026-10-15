@@ -34,9 +34,11 @@ Before creating a GitHub release:
 
 ## Project overview
 
-Chrome extension that overlays self-hosted [Dreeve](https://github.com/dreeveapp/dreeve) heatmap routes on gpx.studio, studio.wanderstories.space, and the OpenStreetMap iD editor.
+Chrome extension that overlays self-hosted [Dreeve](https://github.com/dreeveapp/dreeve) heatmap routes (and explorer tiles) on gpx.studio, studio.wanderstories.space, and the OpenStreetMap iD editor.
 
-Requires **Dreeve v5.3.0+**. Routes come from `/api/internal/heatmap/routes`.
+- Routes: **Dreeve v5.3.0+**, `/api/internal/heatmap/routes`
+- Explorer tiles: **Dreeve v5.6.0+**, `/api/internal/heatmap/tiles` (derived from the routes URL; MapLibre/Mapbox hosts only — not OSM iD)
+- Tile math lives in `src/explorer-tiles.js` (injected before `page-bridge.js`). Layer toggles: `showRoutes` / `showTiles` in `chrome.storage.sync`.
 
 ## Setup and checks
 

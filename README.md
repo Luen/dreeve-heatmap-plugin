@@ -10,25 +10,28 @@ Chrome extension that overlays your self-hosted [Dreeve](https://github.com/dree
 
 ## Requirements
 
-- **Dreeve v5.3.0 or newer** ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.3.0))
+- **Dreeve v5.3.0 or newer** for route overlays ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.3.0))
+- **Dreeve v5.6.0 or newer** for explorer tiles ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.6.0))
 - Support for earlier Dreeve versions (including `/api/heatmap/routes.json` and `/api/fragment/data/heatmap/routes`) has been dropped
 
-Routes are loaded from Dreeve's internal heatmap API: `/api/internal/heatmap/routes`
+Routes are loaded from `/api/internal/heatmap/routes`. Explorer tiles are loaded from `/api/internal/heatmap/tiles` (URL derived automatically from the routes endpoint).
 
 ## What it does
 
 - Lets the user configure a custom heatmap routes endpoint URL
 - Fetches route data from your Dreeve heatmap API
 - Draws route polylines on the page map
+- On gpx.studio and Wanderstories, overlays Dreeve explorer tiles (visited / cluster / max-cluster / max-square), matching the Dreeve heatmap
+- Independent **Show routes** / **Show tiles** checkboxes (both on by default; tiles not shown on OpenStreetMap iD)
+- Shared colour and opacity for routes and tiles; route width applies to lines only
 - Clicking a route opens a popup with activity details and links
 - Toggles overlay on/off from the extension popup
-- Lets the user configure route color, opacity, and width
-- Supports filtering by high-level categories (`Ride`, `Walk`, `Water`, `Winter`)
+- Supports filtering by high-level categories (`Ride`, `Walk`, `Water`, `Winter`) — applies to both routes and tiles
 - Automatically excludes virtual activities (`VirtualRide`, `VirtualRun`)
 - Supports the map engines / editors used by target sites:
-    - `gpx.studio` (MapLibre GL JS)
-    - `studio.wanderstories.space` (Mapbox GL JS)
-    - OpenStreetMap iD editor (Background → Overlays toggle + SVG route layer)
+    - `gpx.studio` (MapLibre GL JS) — routes + explorer tiles
+    - `studio.wanderstories.space` (Mapbox GL JS) — routes + explorer tiles
+    - OpenStreetMap iD editor (Background → Overlays toggle + SVG route layer) — routes only
 
 Expected endpoint format (array of activities with `coordinates` as `[lat, lng]`):
 
@@ -72,9 +75,10 @@ Requires **Node.js 20+**.
 2. Open the extension popup
 3. Enter your endpoint, for example:
     - `http://localhost:8000/api/internal/heatmap/routes`
-4. Click **Save**
-5. Click **Enable** to draw routes
-6. Click **Disable** to remove routes
+4. Optionally toggle **Show routes** / **Show tiles**
+5. Click **Save**
+6. Click **Enable** to draw the selected layers
+7. Click **Disable** to remove the overlay
 
 ### OpenStreetMap iD editor
 
@@ -97,7 +101,7 @@ Style/filter examples:
 - Endpoint and toggle state are stored with `chrome.storage.sync`.
 - Extension permissions include broad `http://*/*` and `https://*/*` host access so users can point to any self-hosted endpoint URL.
 - On OSM, `/edit` embeds iD in an `/id` iframe; the extension hooks that iframe and messages it from the popup.
-- gpx.studio and Wanderstories behavior is unchanged from previous versions; iD support is additive.
+- Explorer tiles are not drawn on OpenStreetMap iD (routes only).
 
 ## Troubleshooting
 
@@ -105,10 +109,11 @@ Style/filter examples:
 - On iD, reload the `/edit` page after installing or updating the extension so the editor boot hook can run.
 - If the endpoint is unreachable from your browser network, the popup will show a fetch error.
 - If the endpoint returns HTML instead of JSON, confirm you are on Dreeve **v5.3.0+** and using `/api/internal/heatmap/routes`.
+- If routes work but tiles fail, confirm Dreeve **v5.6.0+** and that `/api/internal/heatmap/tiles` is reachable.
 - For self-signed HTTPS certificates, make sure Chrome already trusts the endpoint in a normal tab.
 
 ## Performance
 
-- Route payloads are cached in the service worker (memory + `chrome.storage.session`) for about 20 minutes, with HTTP `ETag` / `If-None-Match` when the server supports it.
+- Route and tile payloads are cached in the service worker (memory + `chrome.storage.session`) for about 20 minutes, with HTTP `ETag` / `If-None-Match` when the server supports it.
 - Re-enabling or saving while the overlay is on may reuse the cache; a fresh Enable after Disable still force-refreshes from the network.
 - Style-only changes (color, opacity, width) update the map without re-fetching geometry.

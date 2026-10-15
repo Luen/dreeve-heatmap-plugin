@@ -4,6 +4,8 @@ const STORAGE_KEYS = {
     lineOpacity: 'lineOpacity',
     lineWidth: 'lineWidth',
     sportTypes: 'sportTypes',
+    showRoutes: 'showRoutes',
+    showTiles: 'showTiles',
 }
 
 const SPORT_TYPE_OPTIONS = [
@@ -18,6 +20,8 @@ const lineColorInput = document.getElementById('lineColor')
 const lineOpacityInput = document.getElementById('lineOpacity')
 const lineWidthInput = document.getElementById('lineWidth')
 const sportTypesGroup = document.getElementById('sportTypesGroup')
+const showRoutesInput = document.getElementById('showRoutes')
+const showTilesInput = document.getElementById('showTiles')
 const sportsSelectAllButton = document.getElementById('sportsSelectAll')
 const sportsClearAllButton = document.getElementById('sportsClearAll')
 const saveButton = document.getElementById('save')
@@ -44,11 +48,15 @@ async function init() {
         [STORAGE_KEYS.lineOpacity]: 0.35,
         [STORAGE_KEYS.lineWidth]: 2,
         [STORAGE_KEYS.sportTypes]: [],
+        [STORAGE_KEYS.showRoutes]: true,
+        [STORAGE_KEYS.showTiles]: true,
     })
     endpointInput.value = String(settings[STORAGE_KEYS.endpoint] || '')
     lineColorInput.value = String(settings[STORAGE_KEYS.lineColor] || '#ff4500')
     lineOpacityInput.value = String(settings[STORAGE_KEYS.lineOpacity] ?? 0.35)
     lineWidthInput.value = String(settings[STORAGE_KEYS.lineWidth] ?? 2)
+    showRoutesInput.checked = settings[STORAGE_KEYS.showRoutes] !== false
+    showTilesInput.checked = settings[STORAGE_KEYS.showTiles] !== false
     renderSportTypeCheckboxes(settings[STORAGE_KEYS.sportTypes])
 }
 
@@ -137,6 +145,8 @@ saveButton.addEventListener('click', async () => {
         [STORAGE_KEYS.lineOpacity]: lineOpacity,
         [STORAGE_KEYS.lineWidth]: lineWidth,
         [STORAGE_KEYS.sportTypes]: sportTypes,
+        [STORAGE_KEYS.showRoutes]: Boolean(showRoutesInput.checked),
+        [STORAGE_KEYS.showTiles]: Boolean(showTilesInput.checked),
     })
     setStatus('Settings saved.')
 })

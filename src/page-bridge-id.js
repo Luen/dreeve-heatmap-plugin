@@ -1300,6 +1300,7 @@
                     return
                 }
 
+                // Explorer tiles are MapLibre/Mapbox only; iD ignores tile fields.
                 const routes = Array.isArray(detail.routes) ? detail.routes : []
                 if (!routes.length) {
                     throw new Error('No routes to draw.')

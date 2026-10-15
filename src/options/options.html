@@ -10,7 +10,8 @@
         <main class="container">
             <h1>Dreeve Heatmap Plugin Settings</h1>
             <p class="hint">
-                Requires Dreeve v5.3.0+. Example endpoint:
+                Routes require Dreeve v5.3.0+. Explorer tiles require v5.6.0+.
+                Example endpoint:
                 <code>https://localhost:8000/api/internal/heatmap/routes</code>
             </p>
 
@@ -51,6 +52,19 @@
                 </div>
             </div>
             <div id="sportTypesGroup" class="checkbox-group"></div>
+            <div class="filter-header">
+                <label>Layers (gpx.studio / Wanderstories)</label>
+            </div>
+            <div class="checkbox-group layer-toggles">
+                <label class="checkbox-item" for="showRoutes">
+                    <input id="showRoutes" type="checkbox" checked />
+                    <span>Show routes</span>
+                </label>
+                <label class="checkbox-item" for="showTiles">
+                    <input id="showTiles" type="checkbox" checked />
+                    <span>Show tiles</span>
+                </label>
+            </div>
             <button id="save" type="button">Save settings</button>
             <p id="status"></p>
         </main>

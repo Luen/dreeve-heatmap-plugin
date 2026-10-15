@@ -5,6 +5,8 @@ const STORAGE_KEYS = {
     lineOpacity: 'lineOpacity',
     lineWidth: 'lineWidth',
     sportTypes: 'sportTypes',
+    showRoutes: 'showRoutes',
+    showTiles: 'showTiles',
 }
 
 const SPORT_TYPE_OPTIONS = [
@@ -19,12 +21,24 @@ const lineColorInput = document.getElementById('lineColor')
 const lineOpacityInput = document.getElementById('lineOpacity')
 const lineWidthInput = document.getElementById('lineWidth')
 const sportTypesGroup = document.getElementById('sportTypesGroup')
+const showRoutesInput = document.getElementById('showRoutes')
+const showTilesInput = document.getElementById('showTiles')
 const sportsSelectAllButton = document.getElementById('sportsSelectAll')
 const sportsClearAllButton = document.getElementById('sportsClearAll')
 const saveButton = document.getElementById('save')
 const toggleButton = document.getElementById('toggle')
 const statusEl = document.getElementById('status')
 const versionEl = document.getElementById('version')
+
+function formatOverlayCounts(response) {
+    const routes = Number(response?.routeCount) || 0
+    const tiles = Number(response?.tileCount) || 0
+    let message = `${routes} routes, ${tiles} tiles`
+    if (response?.tilesWarning) {
+        message += ` — ${response.tilesWarning}`
+    }
+    return message
+}
 
 function setStatus(message, isError = false) {
     statusEl.textContent = message
@@ -53,6 +67,8 @@ async function getSettings() {
         [STORAGE_KEYS.lineOpacity]: 0.35,
         [STORAGE_KEYS.lineWidth]: 2,
         [STORAGE_KEYS.sportTypes]: [],
+        [STORAGE_KEYS.showRoutes]: true,
+        [STORAGE_KEYS.showTiles]: true,
     })
 }
 
@@ -140,7 +156,53 @@ function isSupportedTabUrl(url) {
     }
 }
 
+function pingContentScript(tabId, frameId) {
+    return new Promise((resolve) => {
+        const callback = (response) => {
+            if (chrome.runtime.lastError || !response || !response.ok) {
+                resolve(false)
+                return
+            }
+            resolve(true)
+        }
+        const message = { type: 'GET_OVERLAY_STATUS' }
+        if (typeof frameId === 'number') {
+            chrome.tabs.sendMessage(tabId, message, { frameId }, callback)
+        } else {
+            chrome.tabs.sendMessage(tabId, message, callback)
+        }
+    })
+}
+
+async function contentScriptAlive(tabId) {
+    try {
+        const frames = await chrome.webNavigation.getAllFrames({ tabId })
+        const idFrame = (frames || []).find((frame) => {
+            try {
+                const parsed = new URL(frame.url)
+                return (
+                    parsed.hostname === 'www.openstreetmap.org' &&
+                    parsed.pathname.startsWith('/id')
+                )
+            } catch {
+                return false
+            }
+        })
+        if (idFrame && typeof idFrame.frameId === 'number') {
+            if (await pingContentScript(tabId, idFrame.frameId)) {
+                return true
+            }
+        }
+    } catch {
+        // Fall through to main-frame ping
+    }
+    return pingContentScript(tabId, 0)
+}
+
 async function ensureContentScript(tabId) {
+    if (await contentScriptAlive(tabId)) {
+        return
+    }
     await chrome.scripting.executeScript({
         target: { tabId, allFrames: true },
         files: ['src/content-script.js'],
@@ -159,6 +221,8 @@ async function initialize() {
     lineColorInput.value = String(settings[STORAGE_KEYS.lineColor] || '#ff4500')
     lineOpacityInput.value = String(settings[STORAGE_KEYS.lineOpacity] ?? 0.35)
     lineWidthInput.value = String(settings[STORAGE_KEYS.lineWidth] ?? 2)
+    showRoutesInput.checked = settings[STORAGE_KEYS.showRoutes] !== false
+    showTilesInput.checked = settings[STORAGE_KEYS.showTiles] !== false
     renderSportTypeCheckboxes(settings[STORAGE_KEYS.sportTypes])
     updateToggleLabel(Boolean(settings[STORAGE_KEYS.enabled]))
 }
@@ -218,6 +282,8 @@ function getStyleAndFilterInputValues() {
     const lineOpacity = Number(lineOpacityInput.value)
     const lineWidth = Number(lineWidthInput.value)
     const sportTypes = getSelectedSportTypes()
+    const showRoutes = Boolean(showRoutesInput.checked)
+    const showTiles = Boolean(showTilesInput.checked)
 
     if (!/^#[0-9a-fA-F]{6}$/.test(lineColor)) {
         throw new Error('Route color must be a valid hex color.')
@@ -238,6 +304,8 @@ function getStyleAndFilterInputValues() {
         lineOpacity,
         lineWidth,
         sportTypes,
+        [STORAGE_KEYS.showRoutes]: showRoutes,
+        [STORAGE_KEYS.showTiles]: showTiles,
     }
 }
 
@@ -304,7 +372,8 @@ saveButton.addEventListener('click', async () => {
                 }
 
                 setStatus(
-                    `Settings saved and overlay refreshed (${response.routeCount || 0} routes).`,
+                    `Settings saved and overlay refreshed (${formatOverlayCounts(response)}).`,
+                    Boolean(response.tilesWarning),
                 )
                 return
             }
@@ -402,7 +471,10 @@ toggleButton.addEventListener('click', async () => {
     updateToggleLabel(nextEnabled)
 
     if (nextEnabled) {
-        setStatus(`Overlay enabled (${response.routeCount || 0} routes).`)
+        setStatus(
+            `Overlay enabled (${formatOverlayCounts(response)}).`,
+            Boolean(response.tilesWarning),
+        )
     } else {
         setStatus('Overlay disabled.')
     }
