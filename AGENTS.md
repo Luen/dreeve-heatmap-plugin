@@ -55,6 +55,7 @@ After edits: `npm run format` and `npm run lint:fix` as needed. Code must pass P
 
 - ESLint 10 flat config; Prettier for format. Do not add a second formatter.
 - Prefer **DRY** (Don't Repeat Yourself): share helpers and overlay logic across MapLibre / Mapbox / iD adapters instead of copying near-identical blocks.
+- Route normalize prefers `src/normalize-routes-worker.js` (Web Worker) with a chunked main-thread fallback in `src/content-script.js`.
 - When touching duplicated or brittle code, **refactor for maintainability** in the same change when the risk is low and the scope stays focused. Prefer small extract/consolidate steps over drive-by rewrites.
 - Do not restore dropped support for old Dreeve heatmap endpoints.
 - Never commit secrets.
