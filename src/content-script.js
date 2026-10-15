@@ -82,6 +82,9 @@
         ]),
     }
     let bridgeInjected = false
+    /** @type {Worker | null} */
+    let normalizeWorker = null
+    let normalizeWorkerFailed = false
 
     function isOsmIdEditorPage() {
         try {
@@ -240,11 +243,94 @@
         })
     }
 
+    function getNormalizeWorker() {
+        if (normalizeWorkerFailed) {
+            return null
+        }
+        if (normalizeWorker) {
+            return normalizeWorker
+        }
+        try {
+            normalizeWorker = new Worker(
+                chrome.runtime.getURL('src/normalize-routes-worker.js'),
+            )
+            normalizeWorker.addEventListener('error', () => {
+                normalizeWorkerFailed = true
+                try {
+                    normalizeWorker?.terminate()
+                } catch {
+                    // ignore
+                }
+                normalizeWorker = null
+            })
+            return normalizeWorker
+        } catch {
+            normalizeWorkerFailed = true
+            return null
+        }
+    }
+
+    function normalizeRoutesInWorker(payload, filters = {}) {
+        const worker = getNormalizeWorker()
+        if (!worker) {
+            return Promise.reject(new Error('Normalize worker unavailable.'))
+        }
+
+        return new Promise((resolve, reject) => {
+            const requestId = `norm-${Date.now()}-${Math.random().toString(16).slice(2)}`
+            const timeoutMs = 120000
+            let settled = false
+
+            const cleanup = () => {
+                worker.removeEventListener('message', onMessage)
+                worker.removeEventListener('error', onError)
+                clearTimeout(timer)
+            }
+
+            const onMessage = (event) => {
+                const data = event.data || {}
+                if (data.requestId !== requestId || settled) {
+                    return
+                }
+                settled = true
+                cleanup()
+                if (!data.ok) {
+                    reject(new Error(data.error || 'Worker normalize failed.'))
+                    return
+                }
+                resolve(Array.isArray(data.routes) ? data.routes : [])
+            }
+
+            const onError = () => {
+                if (settled) {
+                    return
+                }
+                settled = true
+                cleanup()
+                normalizeWorkerFailed = true
+                reject(new Error('Normalize worker crashed.'))
+            }
+
+            const timer = setTimeout(() => {
+                if (settled) {
+                    return
+                }
+                settled = true
+                cleanup()
+                reject(new Error('Normalize worker timed out.'))
+            }, timeoutMs)
+
+            worker.addEventListener('message', onMessage)
+            worker.addEventListener('error', onError)
+            worker.postMessage({ requestId, payload, filters })
+        })
+    }
+
     /**
      * Normalize API routes once into GeoJSON-ready [lng, lat] points.
      * Yields periodically so large payloads do not freeze the content script.
      */
-    async function normalizeRoutes(payload, filters = {}) {
+    async function normalizeRoutesOnMainThread(payload, filters = {}) {
         if (!Array.isArray(payload)) {
             throw new Error('Expected routes payload to be an array.')
         }
@@ -318,6 +404,14 @@
         }
 
         return routes
+    }
+
+    async function normalizeRoutes(payload, filters = {}) {
+        try {
+            return await normalizeRoutesInWorker(payload, filters)
+        } catch {
+            return normalizeRoutesOnMainThread(payload, filters)
+        }
     }
 
     function injectPageScript(path) {
