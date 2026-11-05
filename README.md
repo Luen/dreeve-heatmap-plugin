@@ -14,7 +14,7 @@ Chrome extension that overlays your self-hosted [Dreeve](https://github.com/dree
 - **Dreeve v5.6.0 or newer** for explorer tiles ([release notes](https://github.com/dreeveapp/dreeve/releases/tag/v5.6.0))
 - Support for earlier Dreeve versions (including `/api/heatmap/routes.json` and `/api/fragment/data/heatmap/routes`) has been dropped
 
-Routes are loaded from `/api/internal/heatmap/routes`. Explorer tiles are loaded from `/api/internal/heatmap/tiles` (URL derived automatically from the routes endpoint).
+Routes are loaded from `/api/internal/heatmap/routes`. Explorer tiles are loaded from `/api/internal/heatmap/tiles` (URL derived automatically from the routes endpoint). Both endpoints return the **full** dataset (no bounds/zoom filtering on the server yet); the extension caches responses and applies filters in the browser.
 
 ## What it does
 
