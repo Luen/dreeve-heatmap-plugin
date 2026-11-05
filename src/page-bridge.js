@@ -13,7 +13,21 @@
         style: null,
         showRoutes: true,
         showTiles: true,
+        /** @type {unknown[] | null} */
+        fullRoutes: null,
+        /** @type {unknown[] | null} */
+        fullTileIds: null,
+        zoomBand: '',
+        routesEffective: false,
+        zoomEndHandler: null,
+        zoomEndTimer: null,
     }
+
+    const ROUTES_MIN_ZOOM = 11
+    const ZOOM_BAND_OVERVIEW = 'overview'
+    const ZOOM_BAND_MID = 'mid'
+    const ZOOM_BAND_DETAIL = 'detail'
+    const ZOOM_END_DEBOUNCE_MS = 150
 
     const SOURCE_ID = 'strava-routes-source'
     const LAYER_ID = 'strava-routes-layer'
@@ -65,12 +79,55 @@
         )
     }
 
+    function zoomBandForZoom(zoom) {
+        const z = Number(zoom)
+        if (!Number.isFinite(z) || z < 10) {
+            return ZOOM_BAND_OVERVIEW
+        }
+        if (z < 13) {
+            return ZOOM_BAND_MID
+        }
+        return ZOOM_BAND_DETAIL
+    }
+
+    function currentMapZoom() {
+        if (!STATE.map || typeof STATE.map.getZoom !== 'function') {
+            return ROUTES_MIN_ZOOM
+        }
+        const zoom = Number(STATE.map.getZoom())
+        return Number.isFinite(zoom) ? zoom : ROUTES_MIN_ZOOM
+    }
+
+    function effectiveShowRoutes(showRoutes, zoom = currentMapZoom()) {
+        return Boolean(showRoutes) && zoom >= ROUTES_MIN_ZOOM
+    }
+
+    function bindZoomLodListener(map) {
+        if (!map || typeof map.on !== 'function') {
+            return
+        }
+        if (STATE.zoomEndHandler && typeof map.off === 'function') {
+            map.off('zoomend', STATE.zoomEndHandler)
+        }
+        STATE.zoomEndHandler = () => {
+            if (STATE.zoomEndTimer) {
+                clearTimeout(STATE.zoomEndTimer)
+            }
+            STATE.zoomEndTimer = setTimeout(() => {
+                STATE.zoomEndTimer = null
+                refreshLodIfNeeded()
+            }, ZOOM_END_DEBOUNCE_MS)
+        }
+        map.on('zoomend', STATE.zoomEndHandler)
+    }
+
     function setMapInstance(map) {
         if (!isValidMapCandidate(map)) {
             return
         }
         STATE.map = map
         STATE.ready = true
+        bindZoomLodListener(map)
     }
 
     function hookConstructor(globalName) {
@@ -238,6 +295,14 @@
         STATE.style = null
         STATE.showRoutes = true
         STATE.showTiles = true
+        STATE.fullRoutes = null
+        STATE.fullTileIds = null
+        STATE.zoomBand = ''
+        STATE.routesEffective = false
+        if (STATE.zoomEndTimer) {
+            clearTimeout(STATE.zoomEndTimer)
+            STATE.zoomEndTimer = null
+        }
     }
 
     function simplifyLine(coordinates, maxPoints) {
@@ -539,12 +604,13 @@
         }
     }
 
-    function buildTilesGeoJson(tileIds) {
+    function buildTilesGeoJson(tileIds, options = {}) {
         const explorer = getExplorerTilesApi()
         if (!explorer) {
             throw new Error('Explorer tiles module is not loaded.')
         }
 
+        const omitVisitedFills = Boolean(options.omitVisitedFills)
         const visitedTiles = new Set(
             (Array.isArray(tileIds) ? tileIds : [])
                 .map((id) => Number(id))
@@ -559,6 +625,9 @@
                 tier = 'maxCluster'
             } else if (clusterTiles.has(tile)) {
                 tier = 'cluster'
+            }
+            if (omitVisitedFills && tier === 'visited') {
+                continue
             }
             features.push(tilePolygonFeature(tile, tier, explorer))
         }
@@ -841,30 +910,74 @@
 
         STATE.showRoutes = Boolean(showRoutes)
         STATE.showTiles = Boolean(showTiles)
-
-        hidePopup()
-        hideTooltip()
-        setRouteLayersVisibility(STATE.showRoutes)
-        setTileLayersVisibility(STATE.showTiles)
-
-        if (STATE.showRoutes && STATE.map.getLayer(HITBOX_LAYER_ID)) {
-            bindLayerInteractions()
-        } else {
-            unbindLayerInteractions()
-        }
+        redrawCachedOverlay()
     }
 
-    function drawOverlay(routes, tileIds, style, showRoutes, showTiles) {
+    function redrawCachedOverlay() {
+        if (!STATE.map || !STATE.overlayApplied) {
+            return
+        }
+        const routes = Array.isArray(STATE.fullRoutes) ? STATE.fullRoutes : []
+        const tileIds = Array.isArray(STATE.fullTileIds)
+            ? STATE.fullTileIds
+            : []
+        drawOverlay(
+            routes,
+            tileIds,
+            STATE.style || {},
+            STATE.showRoutes,
+            STATE.showTiles,
+            { reuseCache: true },
+        )
+    }
+
+    function refreshLodIfNeeded() {
+        if (!STATE.overlayApplied || !STATE.map) {
+            return
+        }
+        const nextBand = zoomBandForZoom(currentMapZoom())
+        const routesWanted = effectiveShowRoutes(STATE.showRoutes)
+        if (
+            nextBand === STATE.zoomBand &&
+            routesWanted === STATE.routesEffective
+        ) {
+            return
+        }
+        redrawCachedOverlay()
+    }
+
+    function drawOverlay(
+        routes,
+        tileIds,
+        style,
+        showRoutes,
+        showTiles,
+        options = {},
+    ) {
         if (!STATE.map) {
             throw new Error('Map instance is not ready yet.')
         }
 
         STATE.showRoutes = Boolean(showRoutes)
         STATE.showTiles = Boolean(showTiles)
+        if (!options.reuseCache) {
+            STATE.fullRoutes = Array.isArray(routes) ? routes : []
+            STATE.fullTileIds = Array.isArray(tileIds) ? tileIds : []
+        }
 
-        const routeList = Array.isArray(routes) ? routes : []
+        const routeList = Array.isArray(STATE.fullRoutes)
+            ? STATE.fullRoutes
+            : []
+        const tileIdList = Array.isArray(STATE.fullTileIds)
+            ? STATE.fullTileIds
+            : []
+        const zoom = currentMapZoom()
+        const band = zoomBandForZoom(zoom)
+        STATE.zoomBand = band
+        const routesEffective = effectiveShowRoutes(STATE.showRoutes, zoom)
+        STATE.routesEffective = routesEffective
         const normalizedStyle = normalizeStyle(style)
-        const routeData = STATE.showRoutes
+        const routeData = routesEffective
             ? toGeoJsonLineCollection(routeList)
             : emptyFeatureCollection()
 
@@ -872,7 +985,9 @@
         let maxSquareData = emptyFeatureCollection()
         let tileCount = 0
         if (STATE.showTiles) {
-            const built = buildTilesGeoJson(tileIds)
+            const built = buildTilesGeoJson(tileIdList, {
+                omitVisitedFills: band === ZOOM_BAND_OVERVIEW,
+            })
             tilesData = built.tiles
             maxSquareData = built.maxSquare
             tileCount = built.tileCount
@@ -918,13 +1033,16 @@
         ensureRouteLayers(normalizedStyle)
         applyPaintStyle(normalizedStyle)
 
-        if (STATE.showRoutes && routeList.length > 0) {
+        if (routesEffective && routeList.length > 0) {
             bindLayerInteractions()
         }
 
         STATE.overlayApplied = true
         STATE.style = normalizedStyle
-        return { routeCount: routeList.length, tileCount }
+        return {
+            routeCount: routesEffective ? routeList.length : 0,
+            tileCount,
+        }
     }
 
     function updateOverlayStyle(style) {

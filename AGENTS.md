@@ -39,6 +39,7 @@ Chrome extension that overlays self-hosted [Dreeve](https://github.com/dreeveapp
 - Routes: **Dreeve v5.3.0+**, `/api/internal/heatmap/routes`
 - Explorer tiles: **Dreeve v5.6.0+**, `/api/internal/heatmap/tiles` (derived from the routes URL; MapLibre GL JS and Mapbox GL JS hosts only — not OSM iD)
 - Tile math lives in `src/explorer-tiles.js` (injected before `page-bridge.js`). Layer toggles: `showRoutes` / `showTiles` in `chrome.storage.sync`. On OSM, the popup disables **Show tiles** and does not overwrite the stored preference.
+- MapLibre/Mapbox LOD (`src/page-bridge.js`): below zoom 10 omit `visited` tile fills (keep clusters/max-square); routes only draw at zoom ≥ 11 when **Show routes** is on. Rebuild on debounced `zoomend` when the zoom band or route gate changes.
 
 ## Setup and checks
 
