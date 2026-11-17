@@ -82,9 +82,12 @@
         ]),
     }
     let bridgeInjected = false
-    /** @type {Worker | null} */
-    let normalizeWorker = null
+    /** @type {Promise<Worker | null> | null} */
+    let normalizeWorkerPromise = null
     let normalizeWorkerFailed = false
+    /** @type {Map<string, { resolve: (routes: unknown[]) => void, reject: (error: Error) => void, timer: ReturnType<typeof setTimeout> }>} */
+    const pendingNormalizeRequests = new Map()
+    const NORMALIZE_WORKER_TIMEOUT_MS = 60000
 
     function isOsmIdEditorPage() {
         try {
@@ -243,86 +246,101 @@
         })
     }
 
-    function getNormalizeWorker() {
-        if (normalizeWorkerFailed) {
-            return null
-        }
-        if (normalizeWorker) {
-            return normalizeWorker
-        }
+    function failNormalizeWorker(worker, reason) {
+        normalizeWorkerFailed = true
+        normalizeWorkerPromise = null
         try {
-            normalizeWorker = new Worker(
-                chrome.runtime.getURL('src/normalize-routes-worker.js'),
-            )
-            normalizeWorker.addEventListener('error', () => {
-                normalizeWorkerFailed = true
-                try {
-                    normalizeWorker?.terminate()
-                } catch {
-                    // ignore
-                }
-                normalizeWorker = null
-            })
-            return normalizeWorker
+            worker?.terminate()
         } catch {
-            normalizeWorkerFailed = true
-            return null
+            // ignore
+        }
+        for (const [requestId, pending] of pendingNormalizeRequests) {
+            clearTimeout(pending.timer)
+            pending.reject(new Error(reason))
+            pendingNormalizeRequests.delete(requestId)
         }
     }
 
-    function normalizeRoutesInWorker(payload, filters = {}) {
-        const worker = getNormalizeWorker()
-        if (!worker) {
-            return Promise.reject(new Error('Normalize worker unavailable.'))
+    /**
+     * Content scripts run with the page's origin, so `new Worker()` cannot load a
+     * chrome-extension:// URL directly. Fetch the (web-accessible) worker source
+     * and start it from a same-origin blob: URL instead. Pages whose CSP blocks
+     * blob: workers fall back to main-thread normalization.
+     */
+    async function createNormalizeWorker() {
+        const response = await fetch(
+            chrome.runtime.getURL('src/normalize-routes-worker.js'),
+        )
+        if (!response.ok) {
+            throw new Error(`Worker source HTTP ${response.status}`)
+        }
+        const source = await response.text()
+        const blobUrl = URL.createObjectURL(
+            new Blob([source], { type: 'text/javascript' }),
+        )
+        const worker = new Worker(blobUrl)
+        worker.addEventListener('message', (event) => {
+            const data = event.data || {}
+            const pending = pendingNormalizeRequests.get(data.requestId)
+            if (!pending) {
+                return
+            }
+            pendingNormalizeRequests.delete(data.requestId)
+            clearTimeout(pending.timer)
+            if (!data.ok) {
+                pending.reject(
+                    new Error(data.error || 'Worker normalize failed.'),
+                )
+                return
+            }
+            pending.resolve(Array.isArray(data.routes) ? data.routes : [])
+        })
+        worker.addEventListener('error', (event) => {
+            event.preventDefault?.()
+            failNormalizeWorker(worker, 'Normalize worker crashed.')
+        })
+        return worker
+    }
+
+    function getNormalizeWorker() {
+        if (normalizeWorkerFailed) {
+            return Promise.resolve(null)
+        }
+        if (!normalizeWorkerPromise) {
+            normalizeWorkerPromise = createNormalizeWorker().catch(() => {
+                normalizeWorkerFailed = true
+                normalizeWorkerPromise = null
+                return null
+            })
+        }
+        return normalizeWorkerPromise
+    }
+
+    async function normalizeRoutesInWorker(payload, filters = {}) {
+        const worker = await getNormalizeWorker()
+        if (!worker || normalizeWorkerFailed) {
+            throw new Error('Normalize worker unavailable.')
         }
 
         return new Promise((resolve, reject) => {
             const requestId = `norm-${Date.now()}-${Math.random().toString(16).slice(2)}`
-            const timeoutMs = 120000
-            let settled = false
-
-            const cleanup = () => {
-                worker.removeEventListener('message', onMessage)
-                worker.removeEventListener('error', onError)
-                clearTimeout(timer)
-            }
-
-            const onMessage = (event) => {
-                const data = event.data || {}
-                if (data.requestId !== requestId || settled) {
-                    return
-                }
-                settled = true
-                cleanup()
-                if (!data.ok) {
-                    reject(new Error(data.error || 'Worker normalize failed.'))
-                    return
-                }
-                resolve(Array.isArray(data.routes) ? data.routes : [])
-            }
-
-            const onError = () => {
-                if (settled) {
-                    return
-                }
-                settled = true
-                cleanup()
-                normalizeWorkerFailed = true
-                reject(new Error('Normalize worker crashed.'))
-            }
-
             const timer = setTimeout(() => {
-                if (settled) {
-                    return
+                if (pendingNormalizeRequests.delete(requestId)) {
+                    reject(new Error('Normalize worker timed out.'))
                 }
-                settled = true
-                cleanup()
-                reject(new Error('Normalize worker timed out.'))
-            }, timeoutMs)
-
-            worker.addEventListener('message', onMessage)
-            worker.addEventListener('error', onError)
-            worker.postMessage({ requestId, payload, filters })
+            }, NORMALIZE_WORKER_TIMEOUT_MS)
+            pendingNormalizeRequests.set(requestId, { resolve, reject, timer })
+            try {
+                worker.postMessage({ requestId, payload, filters })
+            } catch (error) {
+                pendingNormalizeRequests.delete(requestId)
+                clearTimeout(timer)
+                reject(
+                    error instanceof Error
+                        ? error
+                        : new Error('Failed to post to normalize worker.'),
+                )
+            }
         })
     }
 
