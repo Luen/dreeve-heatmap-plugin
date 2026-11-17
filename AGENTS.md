@@ -21,14 +21,14 @@ Treat this file as **living documentation**. Update it in the same PR when the s
 
 - **Never leave `main` ahead of `dev`.** Whenever `dev` is promoted to `main` (via merge commit or release PR) or when automated nightly dependency workflows commit directly to `main`, immediately back-merge `main` into `dev` so both branches share the same history and future PRs do not conflict on `package.json` or lockfiles.
 - Verify sync status:
-  ```bash
-  git fetch origin && git rev-list --left-right --count origin/dev...origin/main
-  # Expected after sync: 0	0
-  ```
+    ```bash
+    git fetch origin && git rev-list --left-right --count origin/dev...origin/main
+    # Expected after sync: 0	0
+    ```
 - Back-merge `main` into `dev`:
-  ```bash
-  git checkout dev && git merge origin/main --no-edit && git push origin dev
-  ```
+    ```bash
+    git checkout dev && git merge origin/main --no-edit && git push origin dev
+    ```
 
 ## Releases
 
@@ -52,6 +52,7 @@ Chrome extension that overlays self-hosted [Dreeve](https://github.com/dreeveapp
 - Routes: **Dreeve v5.3.0+**, `/api/internal/heatmap/routes`
 - Explorer tiles: **Dreeve v5.6.0+**, `/api/internal/heatmap/tiles` (derived from the routes URL; MapLibre GL JS and Mapbox GL JS hosts only — not OSM iD)
 - Tile math lives in `src/explorer-tiles.js` (injected before `page-bridge.js`). Layer toggles: `showRoutes` / `showTiles` in `chrome.storage.sync`. On OSM, the popup disables **Show tiles** and does not overwrite the stored preference.
+- Social preview / README hero image: `.github/assets/social-preview.png`, generated from `social-preview.html` in the same folder (headless Chrome command in the file header). Re-render it if the supported hosts or tagline change; upload it under the repo **Settings → Social preview** on GitHub.
 
 ## Setup and checks
 
@@ -97,8 +98,8 @@ When reviewing or merging **major-version** Dependabot or package updates:
 
 1. **Read the upstream migration guide / changelog** before merging. Do not rely solely on a passing container build (`docker build` only verifies `install`, not runtime execution paths).
 2. **Verify exports and constructors at runtime:**
-   - Check whether default exports moved to named exports (e.g., `pbf` v5 exporting `{ PbfReader, PbfWriter }` instead of a default constructor) or factory functions became ES classes requiring `new` (e.g., `geojson-vt` v5).
-   - Check framework route syntax and middleware compatibility (e.g., Express 5 path-to-regexp rules, React peer dependency alignment across `@types/react` and `@types/react-dom`).
-   - For Python lockfile repos (`uv pip compile`), always recompile `requirements.lock` and `requirements-dev.lock` when `requirements.txt` ranges change so `uv pip sync` and nightly constrained upgrades stay consistent.
+    - Check whether default exports moved to named exports (e.g., `pbf` v5 exporting `{ PbfReader, PbfWriter }` instead of a default constructor) or factory functions became ES classes requiring `new` (e.g., `geojson-vt` v5).
+    - Check framework route syntax and middleware compatibility (e.g., Express 5 path-to-regexp rules, React peer dependency alignment across `@types/react` and `@types/react-dom`).
+    - For Python lockfile repos (`uv pip compile`), always recompile `requirements.lock` and `requirements-dev.lock` when `requirements.txt` ranges change so `uv pip sync` and nightly constrained upgrades stay consistent.
 3. **Regenerate lockfiles with the repo's pinned package manager** (e.g., `pnpm@10.33.0`, `pnpm@12.15.0`, `npm`, or `uv==0.13.7`) when rebasing or combining multiple dependency PRs.
 4. **Run a runtime smoke test** (lint, unit tests, module import check, and endpoint/container health check) before promoting to `main` and publishing a release.
