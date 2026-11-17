@@ -38,15 +38,17 @@ Plan your next ride on gpx.studio and instantly see which roads you've already c
 - 🎨 **Styling** — shared colour and opacity for routes and tiles, plus route line width
 - 🔎 **Activity popups** — click a route to see activity details and links back to Dreeve
 - ⚡ **Fast** — cached payloads with `ETag` revalidation, route parsing in a Web Worker, viewport-filtered and zoom-simplified layers, and style changes that don't re-fetch geometry
+- 🌐 **Per-site control** — built-in hosts are on by default; turn on **Enable on this site** in the popup to use any other page with a MapLibre or Mapbox map
 - 🏠 **Your data, your server** — points at any Dreeve endpoint you choose; nothing goes through a third party
 
 ## Supported sites
 
-| Site                                                          | Map engine     | Routes | Explorer tiles |
-| ------------------------------------------------------------- | -------------- | :----: | :------------: |
-| [gpx.studio](https://gpx.studio)                              | MapLibre GL JS |   ✅   |       ✅       |
-| [Wanderstories Studio](https://studio.wanderstories.space)    | Mapbox GL JS   |   ✅   |       ✅       |
-| [OpenStreetMap iD editor](https://www.openstreetmap.org/edit) | iD (SVG)       |   ✅   |       —        |
+| Site                                                          | Map engine              | Routes | Explorer tiles |
+| ------------------------------------------------------------- | ----------------------- | :----: | :------------: |
+| [gpx.studio](https://gpx.studio)                              | MapLibre GL JS          |   ✅   |       ✅       |
+| [Wanderstories Studio](https://studio.wanderstories.space)    | Mapbox GL JS            |   ✅   |       ✅       |
+| [OpenStreetMap iD editor](https://www.openstreetmap.org/edit) | iD (SVG)                |   ✅   |       —        |
+| Any other http(s) page with a MapLibre / Mapbox map (opt in)  | MapLibre / Mapbox GL JS |   ✅   |       ✅       |
 
 ## Requirements
 
@@ -95,6 +97,14 @@ Works in Chrome and other Chromium-based browsers (Edge, Brave, Arc, …).
 3. Press <kbd>B</kbd> for **Background settings** and scroll to **Overlays**.
 4. Toggle **Dreeve Routes** on or off.
 5. Click **Disable** in the popup to unload the data and remove the overlay entry.
+
+### Other sites with a MapLibre or Mapbox map
+
+1. Open the page and wait for its map to load.
+2. In the popup, tick **Enable on this site**. The popup checks the page for a map and warns you if it can't find one.
+3. Click **Enable**.
+
+On these sites the overlay is not restored automatically after a page reload. Open the popup and click **Disable**, then **Enable**, to draw it again. Untick **Enable on this site** to stop using the extension on a host, including the built-in ones.
 
 ### Style examples
 
