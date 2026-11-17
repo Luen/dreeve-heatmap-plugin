@@ -55,7 +55,7 @@ Plan your next ride on gpx.studio and instantly see which roads you've already c
 | Routes         | [v5.3.0](https://github.com/dreeveapp/dreeve/releases/tag/v5.3.0) | `/api/internal/heatmap/routes` |
 | Explorer tiles | [v5.6.0](https://github.com/dreeveapp/dreeve/releases/tag/v5.6.0) | `/api/internal/heatmap/tiles`  |
 
-You only configure the **routes** URL; the tiles URL is derived from it automatically.
+You only configure the **routes** URL; the tiles URL is derived from it automatically. Both endpoints return the **full** dataset (no bounds or zoom filtering on the server yet), so the extension caches the responses and filters in the browser.
 
 > [!NOTE]
 > Older Dreeve endpoints (`/api/heatmap/routes.json` and `/api/fragment/data/heatmap/routes`) are no longer supported.

@@ -54,6 +54,17 @@ Chrome extension that overlays self-hosted [Dreeve](https://github.com/dreeveapp
 - Tile math lives in `src/explorer-tiles.js` (injected before `page-bridge.js`). Layer toggles: `showRoutes` / `showTiles` in `chrome.storage.sync`. On OSM, the popup disables **Show tiles** and does not overwrite the stored preference.
 - Social preview / README hero image: `.github/assets/social-preview.png`, generated from `social-preview.html` in the same folder (headless Chrome command in the file header). Re-render it if the supported hosts or tagline change; upload it under the repo **Settings → Social preview** on GitHub.
 
+### Dreeve heatmap API shape (as of Dreeve master)
+
+Both internal heatmap endpoints are **full-dataset** `GET`s with **no bbox/zoom query parameters**:
+
+| Endpoint                       | Dreeve handler                | Server behavior                                          |
+| ------------------------------ | ----------------------------- | -------------------------------------------------------- |
+| `/api/internal/heatmap/routes` | `HeatmapRoutesRequestHandler` | `RouteRepository::findAll()`; cache key `heatmap.routes` |
+| `/api/internal/heatmap/tiles`  | `HeatmapTilesRequestHandler`  | all activity→tile IDs; cache key `heatmap.tiles`         |
+
+Dreeve’s own heatmap page (`public/js/features/heatmap/heatmap.js`) also fetches the full routes JSON once and filters client-side. Do **not** teach this extension to request by viewport until Dreeve adds parameterized APIs (and cache keys that include those params). Track: plugin [#31](https://github.com/Luen/dreeve-heatmap-plugin/issues/31).
+
 ## Setup and checks
 
 ```bash
