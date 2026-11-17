@@ -21,7 +21,8 @@
         routeEntries: null,
         zoomBand: '',
         routesEffective: false,
-        visibleSetKey: '',
+        /** Padded viewport bbox the current GeoJSON was filtered to. */
+        drawnViewport: null,
         zoomEndHandler: null,
         moveEndHandler: null,
         viewChangeTimer: null,
@@ -187,7 +188,7 @@
         )
     }
 
-    function paddedViewportBbox() {
+    function viewportBbox(padRatio = 0) {
         if (!STATE.map || typeof STATE.map.getBounds !== 'function') {
             return null
         }
@@ -204,8 +205,9 @@
         ) {
             return null
         }
-        const padX = Math.max(0.01, (east - west) * VIEWPORT_PAD_RATIO)
-        const padY = Math.max(0.01, (north - south) * VIEWPORT_PAD_RATIO)
+        const padX = padRatio > 0 ? Math.max(0.01, (east - west) * padRatio) : 0
+        const padY =
+            padRatio > 0 ? Math.max(0.01, (north - south) * padRatio) : 0
         return {
             minX: west - padX,
             minY: south - padY,
@@ -395,7 +397,7 @@
         STATE.routeEntries = null
         STATE.zoomBand = ''
         STATE.routesEffective = false
-        STATE.visibleSetKey = ''
+        STATE.drawnViewport = null
         if (STATE.viewChangeTimer) {
             clearTimeout(STATE.viewChangeTimer)
             STATE.viewChangeTimer = null
@@ -1050,20 +1052,15 @@
         )
     }
 
-    function visibleSetKey(routeEntries, tileIds, viewport, band, routesOn) {
-        const routes = Array.isArray(routeEntries) ? routeEntries : []
-        let routeBits = 0
-        if (routesOn) {
-            for (let i = 0; i < routes.length; i += 1) {
-                const bbox = routes[i]?.bbox
-                if (!viewport || !bbox || bboxesIntersect(bbox, viewport)) {
-                    routeBits += 1
-                }
-            }
-        }
-        const tiles = Array.isArray(tileIds) ? tileIds : []
-        // Tile visibility is recomputed in buildTilesGeoJson; key by count + band.
-        return `${band}|r${routesOn ? 1 : 0}|rc${routeBits}|tc${tiles.length}|v${viewport ? `${viewport.minX.toFixed(3)},${viewport.minY.toFixed(3)},${viewport.maxX.toFixed(3)},${viewport.maxY.toFixed(3)}` : 'all'}`
+    function bboxContains(outer, inner) {
+        return Boolean(
+            outer &&
+            inner &&
+            inner.minX >= outer.minX &&
+            inner.minY >= outer.minY &&
+            inner.maxX <= outer.maxX &&
+            inner.maxY <= outer.maxY,
+        )
     }
 
     function refreshLodIfNeeded() {
@@ -1072,18 +1069,16 @@
         }
         const nextBand = zoomBandForZoom(currentMapZoom())
         const routesWanted = effectiveShowRoutes(STATE.showRoutes)
-        const viewport = paddedViewportBbox()
-        const nextKey = visibleSetKey(
-            STATE.routeEntries,
-            STATE.fullTileIds,
-            viewport,
-            nextBand,
-            routesWanted,
-        )
+        // The last draw included a padded margin around the viewport, so only
+        // rebuild once the visible area leaves it (or the zoom band / route
+        // gate changes). Small pans and zooms reuse the existing GeoJSON.
+        const stillCovered =
+            STATE.drawnViewport === null ||
+            bboxContains(STATE.drawnViewport, viewportBbox())
         if (
             nextBand === STATE.zoomBand &&
             routesWanted === STATE.routesEffective &&
-            nextKey === STATE.visibleSetKey
+            stillCovered
         ) {
             return
         }
@@ -1121,14 +1116,8 @@
         STATE.zoomBand = band
         const routesEffective = effectiveShowRoutes(STATE.showRoutes, zoom)
         STATE.routesEffective = routesEffective
-        const viewport = paddedViewportBbox()
-        STATE.visibleSetKey = visibleSetKey(
-            routeEntries,
-            tileIdList,
-            viewport,
-            band,
-            routesEffective,
-        )
+        const viewport = viewportBbox(VIEWPORT_PAD_RATIO)
+        STATE.drawnViewport = viewport
         const normalizedStyle = normalizeStyle(style)
         const routeData = routesEffective
             ? toGeoJsonLineCollection(routeEntries, {
