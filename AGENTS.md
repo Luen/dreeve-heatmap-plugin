@@ -81,7 +81,7 @@ After edits: `npm run format` and `npm run lint:fix` as needed. Code must pass P
 
 - ESLint 10 flat config; Prettier for format. Do not add a second formatter.
 - Prefer **DRY** (Don't Repeat Yourself): share helpers and overlay logic across MapLibre / Mapbox / iD adapters instead of copying near-identical blocks.
-- Route normalize prefers `src/normalize-routes-worker.js` (Web Worker) with a chunked main-thread fallback in `src/content-script.js`.
+- Route filtering and normalization live in `src/route-normalize.js` (`globalThis.DreeveRouteNormalize`, no extension APIs). The content script loads it first (manifest and popup `executeScript`), and the Web Worker is built from it plus `src/normalize-routes-worker.js` as one `blob:` script, so the worker and the chunked main-thread fallback cannot drift apart. Keep new filter rules in that module.
 - When touching duplicated or brittle code, **refactor for maintainability** in the same change when the risk is low and the scope stays focused. Prefer small extract/consolidate steps over drive-by rewrites.
 - Do not restore dropped support for old Dreeve heatmap endpoints.
 - Never commit secrets.
