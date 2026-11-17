@@ -37,7 +37,7 @@ Plan your next ride on gpx.studio and instantly see which roads you've already c
 - 🚴 **Sport filters** — `Ride`, `Walk`, `Water`, `Winter`; applies to routes and tiles. Virtual activities (`VirtualRide`, `VirtualRun`) are skipped when a filter is active
 - 🎨 **Styling** — shared colour and opacity for routes and tiles, plus route line width
 - 🔎 **Activity popups** — click a route to see activity details and links back to Dreeve
-- ⚡ **Fast** — cached payloads with `ETag` revalidation, lighter tile layers at overview zoom, and style changes that don't re-fetch geometry
+- ⚡ **Fast** — cached payloads with `ETag` revalidation, route parsing in a Web Worker, viewport-filtered and zoom-simplified layers, and style changes that don't re-fetch geometry
 - 🏠 **Your data, your server** — points at any Dreeve endpoint you choose; nothing goes through a third party
 
 ## Supported sites
