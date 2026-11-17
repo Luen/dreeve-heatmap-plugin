@@ -13,7 +13,14 @@
         sportTypes: 'sportTypes',
         showRoutes: 'showRoutes',
         showTiles: 'showTiles',
+        siteEnabledByOrigin: 'siteEnabledByOrigin',
     }
+
+    const BUILT_IN_HOSTS = new Set([
+        'gpx.studio',
+        'studio.wanderstories.space',
+        'www.openstreetmap.org',
+    ])
 
     const CURRENT_ROUTES_PATH = '/api/internal/heatmap/routes'
     const CURRENT_TILES_PATH = '/api/internal/heatmap/tiles'
@@ -27,6 +34,54 @@
         [STORAGE_KEYS.sportTypes]: [],
         [STORAGE_KEYS.showRoutes]: true,
         [STORAGE_KEYS.showTiles]: true,
+        [STORAGE_KEYS.siteEnabledByOrigin]: {},
+    }
+
+    function normalizeSiteEnabledMap(raw) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            return {}
+        }
+        const normalized = {}
+        for (const [origin, value] of Object.entries(raw)) {
+            if (
+                typeof origin === 'string' &&
+                origin &&
+                typeof value === 'boolean'
+            ) {
+                normalized[origin] = value
+            }
+        }
+        return normalized
+    }
+
+    function isSiteEnabledForOrigin(origin, siteEnabledByOrigin) {
+        if (!origin) {
+            return false
+        }
+        const map = normalizeSiteEnabledMap(siteEnabledByOrigin)
+        if (Object.prototype.hasOwnProperty.call(map, origin)) {
+            return map[origin] === true
+        }
+        try {
+            return BUILT_IN_HOSTS.has(new URL(origin).hostname)
+        } catch {
+            return false
+        }
+    }
+
+    function currentPageOrigin() {
+        try {
+            return window.location.origin
+        } catch {
+            return ''
+        }
+    }
+
+    function isCurrentSiteEnabled(settings) {
+        return isSiteEnabledForOrigin(
+            currentPageOrigin(),
+            settings[STORAGE_KEYS.siteEnabledByOrigin],
+        )
     }
 
     const OVERLAY_STATE = {
@@ -82,6 +137,12 @@
         ]),
     }
     let bridgeInjected = false
+    /** @type {Promise<Worker | null> | null} */
+    let normalizeWorkerPromise = null
+    let normalizeWorkerFailed = false
+    /** @type {Map<string, { resolve: (routes: unknown[]) => void, reject: (error: Error) => void, timer: ReturnType<typeof setTimeout> }>} */
+    const pendingNormalizeRequests = new Map()
+    const NORMALIZE_WORKER_TIMEOUT_MS = 60000
 
     function isOsmIdEditorPage() {
         try {
@@ -240,11 +301,109 @@
         })
     }
 
+    function failNormalizeWorker(worker, reason) {
+        normalizeWorkerFailed = true
+        normalizeWorkerPromise = null
+        try {
+            worker?.terminate()
+        } catch {
+            // ignore
+        }
+        for (const [requestId, pending] of pendingNormalizeRequests) {
+            clearTimeout(pending.timer)
+            pending.reject(new Error(reason))
+            pendingNormalizeRequests.delete(requestId)
+        }
+    }
+
+    /**
+     * Content scripts run with the page's origin, so `new Worker()` cannot load a
+     * chrome-extension:// URL directly. Fetch the (web-accessible) worker source
+     * and start it from a same-origin blob: URL instead. Pages whose CSP blocks
+     * blob: workers fall back to main-thread normalization.
+     */
+    async function createNormalizeWorker() {
+        const response = await fetch(
+            chrome.runtime.getURL('src/normalize-routes-worker.js'),
+        )
+        if (!response.ok) {
+            throw new Error(`Worker source HTTP ${response.status}`)
+        }
+        const source = await response.text()
+        const blobUrl = URL.createObjectURL(
+            new Blob([source], { type: 'text/javascript' }),
+        )
+        const worker = new Worker(blobUrl)
+        worker.addEventListener('message', (event) => {
+            const data = event.data || {}
+            const pending = pendingNormalizeRequests.get(data.requestId)
+            if (!pending) {
+                return
+            }
+            pendingNormalizeRequests.delete(data.requestId)
+            clearTimeout(pending.timer)
+            if (!data.ok) {
+                pending.reject(
+                    new Error(data.error || 'Worker normalize failed.'),
+                )
+                return
+            }
+            pending.resolve(Array.isArray(data.routes) ? data.routes : [])
+        })
+        worker.addEventListener('error', (event) => {
+            event.preventDefault?.()
+            failNormalizeWorker(worker, 'Normalize worker crashed.')
+        })
+        return worker
+    }
+
+    function getNormalizeWorker() {
+        if (normalizeWorkerFailed) {
+            return Promise.resolve(null)
+        }
+        if (!normalizeWorkerPromise) {
+            normalizeWorkerPromise = createNormalizeWorker().catch(() => {
+                normalizeWorkerFailed = true
+                normalizeWorkerPromise = null
+                return null
+            })
+        }
+        return normalizeWorkerPromise
+    }
+
+    async function normalizeRoutesInWorker(payload, filters = {}) {
+        const worker = await getNormalizeWorker()
+        if (!worker || normalizeWorkerFailed) {
+            throw new Error('Normalize worker unavailable.')
+        }
+
+        return new Promise((resolve, reject) => {
+            const requestId = `norm-${Date.now()}-${Math.random().toString(16).slice(2)}`
+            const timer = setTimeout(() => {
+                if (pendingNormalizeRequests.delete(requestId)) {
+                    reject(new Error('Normalize worker timed out.'))
+                }
+            }, NORMALIZE_WORKER_TIMEOUT_MS)
+            pendingNormalizeRequests.set(requestId, { resolve, reject, timer })
+            try {
+                worker.postMessage({ requestId, payload, filters })
+            } catch (error) {
+                pendingNormalizeRequests.delete(requestId)
+                clearTimeout(timer)
+                reject(
+                    error instanceof Error
+                        ? error
+                        : new Error('Failed to post to normalize worker.'),
+                )
+            }
+        })
+    }
+
     /**
      * Normalize API routes once into GeoJSON-ready [lng, lat] points.
      * Yields periodically so large payloads do not freeze the content script.
      */
-    async function normalizeRoutes(payload, filters = {}) {
+    async function normalizeRoutesOnMainThread(payload, filters = {}) {
         if (!Array.isArray(payload)) {
             throw new Error('Expected routes payload to be an array.')
         }
@@ -318,6 +477,14 @@
         }
 
         return routes
+    }
+
+    async function normalizeRoutes(payload, filters = {}) {
+        try {
+            return await normalizeRoutesInWorker(payload, filters)
+        } catch {
+            return normalizeRoutesOnMainThread(payload, filters)
+        }
     }
 
     function injectPageScript(path) {
@@ -521,6 +688,15 @@
 
     async function applyOverlay({ endpoint, enabled, forceRefresh = false }) {
         injectBridgeScript()
+
+        if (enabled) {
+            const settingsForSite = await getSettings()
+            if (!isCurrentSiteEnabled(settingsForSite)) {
+                throw new Error(
+                    'Extension is disabled on this site. Enable it in the popup.',
+                )
+            }
+        }
 
         if (!enabled) {
             const disableResult = await sendBridgeCommand({ action: 'disable' })
@@ -767,12 +943,31 @@
         })
         return false
     })
+
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+        if (!message || message.type !== 'PROBE_MAP') {
+            return undefined
+        }
+
+        injectBridgeScript()
+        sendBridgeCommand({ action: 'status' }).then((detail) => {
+            sendResponse({
+                ok: Boolean(detail?.ok),
+                ready: Boolean(detail?.ready),
+                error: detail?.error || '',
+            })
+        })
+        return true
+    })
     ;(async () => {
         // Inject immediately: OSM must restore #id-container before iD boots;
         // MapLibre/Mapbox sites need early constructor hooks.
         injectBridgeScript()
 
         const settings = await getSettings()
+        if (!isCurrentSiteEnabled(settings)) {
+            return
+        }
         const endpoint = String(settings[STORAGE_KEYS.endpoint] || '').trim()
         const enabled = Boolean(settings[STORAGE_KEYS.enabled])
         if (enabled) {
