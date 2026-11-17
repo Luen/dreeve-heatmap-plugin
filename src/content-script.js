@@ -82,6 +82,12 @@
         ]),
     }
     let bridgeInjected = false
+    /** @type {Promise<Worker | null> | null} */
+    let normalizeWorkerPromise = null
+    let normalizeWorkerFailed = false
+    /** @type {Map<string, { resolve: (routes: unknown[]) => void, reject: (error: Error) => void, timer: ReturnType<typeof setTimeout> }>} */
+    const pendingNormalizeRequests = new Map()
+    const NORMALIZE_WORKER_TIMEOUT_MS = 60000
 
     function isOsmIdEditorPage() {
         try {
@@ -240,11 +246,109 @@
         })
     }
 
+    function failNormalizeWorker(worker, reason) {
+        normalizeWorkerFailed = true
+        normalizeWorkerPromise = null
+        try {
+            worker?.terminate()
+        } catch {
+            // ignore
+        }
+        for (const [requestId, pending] of pendingNormalizeRequests) {
+            clearTimeout(pending.timer)
+            pending.reject(new Error(reason))
+            pendingNormalizeRequests.delete(requestId)
+        }
+    }
+
+    /**
+     * Content scripts run with the page's origin, so `new Worker()` cannot load a
+     * chrome-extension:// URL directly. Fetch the (web-accessible) worker source
+     * and start it from a same-origin blob: URL instead. Pages whose CSP blocks
+     * blob: workers fall back to main-thread normalization.
+     */
+    async function createNormalizeWorker() {
+        const response = await fetch(
+            chrome.runtime.getURL('src/normalize-routes-worker.js'),
+        )
+        if (!response.ok) {
+            throw new Error(`Worker source HTTP ${response.status}`)
+        }
+        const source = await response.text()
+        const blobUrl = URL.createObjectURL(
+            new Blob([source], { type: 'text/javascript' }),
+        )
+        const worker = new Worker(blobUrl)
+        worker.addEventListener('message', (event) => {
+            const data = event.data || {}
+            const pending = pendingNormalizeRequests.get(data.requestId)
+            if (!pending) {
+                return
+            }
+            pendingNormalizeRequests.delete(data.requestId)
+            clearTimeout(pending.timer)
+            if (!data.ok) {
+                pending.reject(
+                    new Error(data.error || 'Worker normalize failed.'),
+                )
+                return
+            }
+            pending.resolve(Array.isArray(data.routes) ? data.routes : [])
+        })
+        worker.addEventListener('error', (event) => {
+            event.preventDefault?.()
+            failNormalizeWorker(worker, 'Normalize worker crashed.')
+        })
+        return worker
+    }
+
+    function getNormalizeWorker() {
+        if (normalizeWorkerFailed) {
+            return Promise.resolve(null)
+        }
+        if (!normalizeWorkerPromise) {
+            normalizeWorkerPromise = createNormalizeWorker().catch(() => {
+                normalizeWorkerFailed = true
+                normalizeWorkerPromise = null
+                return null
+            })
+        }
+        return normalizeWorkerPromise
+    }
+
+    async function normalizeRoutesInWorker(payload, filters = {}) {
+        const worker = await getNormalizeWorker()
+        if (!worker || normalizeWorkerFailed) {
+            throw new Error('Normalize worker unavailable.')
+        }
+
+        return new Promise((resolve, reject) => {
+            const requestId = `norm-${Date.now()}-${Math.random().toString(16).slice(2)}`
+            const timer = setTimeout(() => {
+                if (pendingNormalizeRequests.delete(requestId)) {
+                    reject(new Error('Normalize worker timed out.'))
+                }
+            }, NORMALIZE_WORKER_TIMEOUT_MS)
+            pendingNormalizeRequests.set(requestId, { resolve, reject, timer })
+            try {
+                worker.postMessage({ requestId, payload, filters })
+            } catch (error) {
+                pendingNormalizeRequests.delete(requestId)
+                clearTimeout(timer)
+                reject(
+                    error instanceof Error
+                        ? error
+                        : new Error('Failed to post to normalize worker.'),
+                )
+            }
+        })
+    }
+
     /**
      * Normalize API routes once into GeoJSON-ready [lng, lat] points.
      * Yields periodically so large payloads do not freeze the content script.
      */
-    async function normalizeRoutes(payload, filters = {}) {
+    async function normalizeRoutesOnMainThread(payload, filters = {}) {
         if (!Array.isArray(payload)) {
             throw new Error('Expected routes payload to be an array.')
         }
@@ -318,6 +422,14 @@
         }
 
         return routes
+    }
+
+    async function normalizeRoutes(payload, filters = {}) {
+        try {
+            return await normalizeRoutesInWorker(payload, filters)
+        } catch {
+            return normalizeRoutesOnMainThread(payload, filters)
+        }
     }
 
     function injectPageScript(path) {

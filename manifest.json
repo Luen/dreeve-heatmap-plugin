@@ -57,6 +57,10 @@
         {
             "resources": ["src/page-bridge-id.js", "src/id/start.js"],
             "matches": ["*://www.openstreetmap.org/*"]
+        },
+        {
+            "resources": ["src/normalize-routes-worker.js"],
+            "matches": ["<all_urls>"]
         }
     ]
 }
