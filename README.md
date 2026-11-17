@@ -34,7 +34,7 @@ Plan your next ride on gpx.studio and instantly see which roads you've already c
 - 🔥 **Route heatmap** — draws all your Dreeve activity polylines on the page's map
 - 🟧 **Explorer tiles** — visited, cluster, max-cluster and max-square tiles, matching the Dreeve heatmap
 - 🎛️ **Independent layers** — toggle **Show routes** and **Show tiles** separately (both on by default)
-- 🚴 **Sport filters** — `Ride`, `Walk`, `Water`, `Winter`; applies to routes and tiles. Virtual activities (`VirtualRide`, `VirtualRun`) are always excluded
+- 🚴 **Sport filters** — `Ride`, `Walk`, `Water`, `Winter`; applies to routes and tiles. Virtual activities (`VirtualRide`, `VirtualRun`) are skipped when a filter is active
 - 🎨 **Styling** — shared colour and opacity for routes and tiles, plus route line width
 - 🔎 **Activity popups** — click a route to see activity details and links back to Dreeve
 - ⚡ **Fast** — cached payloads with `ETag` revalidation, Web Worker route parsing, and style changes that don't re-fetch geometry
