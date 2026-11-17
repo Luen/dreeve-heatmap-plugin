@@ -1,0 +1,291 @@
+<!doctype html>
+<!--
+    Source for the GitHub social preview image (1280x640).
+    Regenerate social-preview.png with headless Chrome, for example:
+    chrome --headless --hide-scrollbars --window-size=1280,640 \
+        --virtual-time-budget=2000 --screenshot=social-preview.png social-preview.html
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Dreeve Heatmap Plugin - social preview</title>
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+            }
+            html,
+            body {
+                width: 1280px;
+                height: 640px;
+                overflow: hidden;
+                background: #0b0e13;
+                font-family:
+                    'Segoe UI',
+                    Inter,
+                    system-ui,
+                    -apple-system,
+                    sans-serif;
+                color: #f3f4f6;
+            }
+            #map {
+                position: absolute;
+                inset: 0;
+            }
+            .fade {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(
+                    90deg,
+                    #0b0e13 0%,
+                    #0b0e13 34%,
+                    rgb(11 14 19 / 0.82) 50%,
+                    rgb(11 14 19 / 0) 72%
+                );
+            }
+            .content {
+                position: absolute;
+                left: 80px;
+                top: 0;
+                bottom: 0;
+                width: 640px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 26px;
+            }
+            .eyebrow {
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 20px;
+                font-weight: 600;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: #94a3b8;
+            }
+            .eyebrow .dot {
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                background: #ff4500;
+                box-shadow: 0 0 16px #ff4500;
+            }
+            h1 {
+                font-size: 92px;
+                line-height: 0.98;
+                font-weight: 800;
+                letter-spacing: -0.03em;
+            }
+            h1 span {
+                background: linear-gradient(90deg, #ff4500, #ffb020);
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+            }
+            p {
+                font-size: 27px;
+                line-height: 1.4;
+                color: #cbd5e1;
+                max-width: 560px;
+            }
+            .hosts {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+            }
+            .hosts span {
+                padding: 9px 16px;
+                border-radius: 999px;
+                border: 1px solid #394150;
+                background: rgb(23 28 37 / 0.9);
+                font-size: 19px;
+                font-weight: 600;
+                color: #e2e8f0;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="map" width="1280" height="640"></canvas>
+        <div class="fade"></div>
+        <div class="content">
+            <div class="eyebrow"><span class="dot"></span>Chrome extension</div>
+            <h1>Dreeve<br /><span>Heatmap</span></h1>
+            <p>
+                Overlay your self-hosted Dreeve routes and explorer tiles on the
+                maps you plan with.
+            </p>
+            <div class="hosts">
+                <span>gpx.studio</span>
+                <span>Wanderstories</span>
+                <span>OpenStreetMap iD</span>
+            </div>
+        </div>
+        <script>
+            const canvas = document.getElementById('map')
+            const ctx = canvas.getContext('2d')
+            const W = canvas.width
+            const H = canvas.height
+
+            // Deterministic RNG so the image is reproducible.
+            let seed = 20261118
+            const rand = () => {
+                seed = (seed * 1664525 + 1013904223) >>> 0
+                return seed / 4294967296
+            }
+
+            // Road network: a jittered grid graph with some edges removed.
+            const STEP = 34
+            const cols = Math.ceil(W / STEP) + 2
+            const rows = Math.ceil(H / STEP) + 2
+            const nodes = []
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    nodes.push([
+                        (c - 1) * STEP + (rand() - 0.5) * STEP * 0.7,
+                        (r - 1) * STEP + (rand() - 0.5) * STEP * 0.7,
+                    ])
+                }
+            }
+            const id = (c, r) => r * cols + c
+            const adj = nodes.map(() => [])
+            const edges = new Map()
+            const addEdge = (a, b) => {
+                adj[a].push(b)
+                adj[b].push(a)
+                edges.set(a < b ? `${a}-${b}` : `${b}-${a}`, 0)
+            }
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (c + 1 < cols && rand() > 0.18)
+                        addEdge(id(c, r), id(c + 1, r))
+                    if (r + 1 < rows && rand() > 0.18)
+                        addEdge(id(c, r), id(c, r + 1))
+                    if (c + 1 < cols && r + 1 < rows && rand() > 0.9)
+                        addEdge(id(c, r), id(c + 1, r + 1))
+                }
+            }
+
+            const drawEdge = (a, b) => {
+                ctx.beginPath()
+                ctx.moveTo(nodes[a][0], nodes[a][1])
+                ctx.lineTo(nodes[b][0], nodes[b][1])
+                ctx.stroke()
+            }
+
+            // Faint base map roads.
+            ctx.lineCap = 'round'
+            ctx.lineJoin = 'round'
+            ctx.strokeStyle = 'rgb(148 163 184 / 0.07)'
+            ctx.lineWidth = 1.5
+            for (const key of edges.keys()) {
+                const [a, b] = key.split('-').map(Number)
+                drawEdge(a, b)
+            }
+
+            // Routes: momentum random walks over the road graph from a few home hubs.
+            const nearestNode = (x, y) => {
+                let best = 0
+                let bestD = Infinity
+                nodes.forEach(([nx, ny], i) => {
+                    const d = (nx - x) ** 2 + (ny - y) ** 2
+                    if (d < bestD && adj[i].length) {
+                        bestD = d
+                        best = i
+                    }
+                })
+                return best
+            }
+            const hubs = [
+                nearestNode(960, 330),
+                nearestNode(1110, 210),
+                nearestNode(870, 470),
+            ]
+            const centre = [990, 320]
+            const TILE = 64
+            const visited = new Map()
+            for (let i = 0; i < 70; i++) {
+                let cur = hubs[Math.floor(rand() * hubs.length)]
+                let prev = -1
+                let dir = rand() * Math.PI * 2
+                const steps = 15 + Math.floor(rand() * 45)
+                for (let s = 0; s < steps; s++) {
+                    const options = adj[cur].filter((n) => n !== prev)
+                    if (!options.length) break
+                    // Prefer continuing straight-ish and staying near the centre.
+                    const [cx, cy] = nodes[cur]
+                    const scored = options.map((n) => {
+                        const ang = Math.atan2(
+                            nodes[n][1] - cy,
+                            nodes[n][0] - cx,
+                        )
+                        const straight = Math.cos(ang - dir)
+                        const dist = Math.hypot(
+                            nodes[n][0] - centre[0],
+                            nodes[n][1] - centre[1],
+                        )
+                        return {
+                            n,
+                            ang,
+                            score:
+                                straight * 1.4 -
+                                Math.max(0, dist - 280) / 60 +
+                                rand() * 1.2,
+                        }
+                    })
+                    scored.sort((a, b) => b.score - a.score)
+                    const next = scored[0]
+                    const key =
+                        cur < next.n ? `${cur}-${next.n}` : `${next.n}-${cur}`
+                    edges.set(key, edges.get(key) + 1)
+                    const [nx, ny] = nodes[next.n]
+                    const tkey = `${Math.floor(nx / TILE)},${Math.floor(ny / TILE)}`
+                    visited.set(tkey, (visited.get(tkey) || 0) + 1)
+                    dir = next.ang
+                    prev = cur
+                    cur = next.n
+                }
+            }
+
+            // Explorer tiles.
+            for (const [key, count] of visited) {
+                const [tx, ty] = key.split(',').map(Number)
+                const strong = count > 8
+                ctx.fillStyle = strong
+                    ? 'rgb(255 69 0 / 0.13)'
+                    : 'rgb(255 69 0 / 0.06)'
+                ctx.strokeStyle = strong
+                    ? 'rgb(255 120 40 / 0.38)'
+                    : 'rgb(255 120 40 / 0.18)'
+                ctx.lineWidth = 1
+                ctx.fillRect(tx * TILE + 2, ty * TILE + 2, TILE - 4, TILE - 4)
+                ctx.strokeRect(
+                    tx * TILE + 2.5,
+                    ty * TILE + 2.5,
+                    TILE - 5,
+                    TILE - 5,
+                )
+            }
+
+            // Heat: brightness and width grow with how often a road was ridden.
+            ctx.globalCompositeOperation = 'lighter'
+            for (const [key, count] of edges) {
+                if (!count) continue
+                const [a, b] = key.split('-').map(Number)
+                const heat = Math.min(1, Math.log2(count + 1) / 5)
+                ctx.lineWidth = 6 + heat * 10
+                ctx.strokeStyle = `rgb(255 60 0 / ${0.04 + heat * 0.1})`
+                drawEdge(a, b)
+                ctx.lineWidth = 1.4 + heat * 2.6
+                ctx.strokeStyle = `rgb(255 ${Math.round(70 + heat * 110)} ${Math.round(heat * 60)} / ${0.3 + heat * 0.65})`
+                drawEdge(a, b)
+                if (heat > 0.6) {
+                    ctx.lineWidth = 1.2
+                    ctx.strokeStyle = `rgb(255 240 200 / ${(heat - 0.6) * 1.5})`
+                    drawEdge(a, b)
+                }
+            }
+            ctx.globalCompositeOperation = 'source-over'
+        </script>
+    </body>
+</html>
