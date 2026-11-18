@@ -104,7 +104,7 @@ Works in Chrome and other Chromium-based browsers (Edge, Brave, Arc, …).
 2. In the popup, tick **Enable on this site**. The popup checks the page for a map and warns you if it can't find one.
 3. Click **Enable**.
 
-On these sites the overlay is not restored automatically after a page reload. Open the popup and click **Disable**, then **Enable**, to draw it again. Untick **Enable on this site** to stop using the extension on a host, including the built-in ones.
+Once a site is enabled, the overlay comes back automatically when you reload or revisit it, just like on the built-in hosts. Untick **Enable on this site** to stop using the extension on a host, including the built-in ones.
 
 ### Style examples
 
