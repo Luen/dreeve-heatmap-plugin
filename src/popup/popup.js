@@ -345,7 +345,7 @@ async function ensureContentScript(tabId) {
     }
     await chrome.scripting.executeScript({
         target: { tabId, allFrames: true },
-        files: ['src/content-script.js'],
+        files: ['src/route-normalize.js', 'src/content-script.js'],
     })
 }
 
