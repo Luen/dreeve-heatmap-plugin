@@ -66,6 +66,22 @@ Both internal heatmap endpoints are **full-dataset** `GET`s with **no bbox/zoom 
 
 Dreeve’s own heatmap page (`public/js/features/heatmap/heatmap.js`) also fetches the full routes JSON once and filters client-side. Do **not** teach this extension to request by viewport until Dreeve adds parameterized APIs (and cache keys that include those params). Track: plugin [#31](https://github.com/Luen/dreeve-heatmap-plugin/issues/31).
 
+### Upstream endpoint lifecycle and internal API contract
+
+The endpoints used by this extension (`/api/internal/heatmap/routes` and `/api/internal/heatmap/tiles`) are internal to Dreeve's own UI and are unversioned.
+
+Upstream maintainers explicitly clarified this boundary when declining server-side conditional request (`ETag` / `If-None-Match`) support ([dreeveapp/dreeve#3064](https://github.com/dreeveapp/dreeve/issues/3064)):
+
+> _"The `/api/internal/*` endpoints are internal to Dreeve's own UI. They're unversioned and may change or move without notice, so we don't add features to support external tools on top of them._
+>
+> _If there's a real need for heatmap data outside the app, that would belong in the public `/api/v1` API. And even there, clients that consume the API are responsible for handling when they call the API and expect a response and when they don't."_
+
+Key architectural implications for this extension:
+
+1. **No public heatmap API exists in Dreeve:** An audit of Dreeve's `/api/v1/*` routes confirmed there are no public endpoints providing heatmap routes or explorer tiles. `/api/v1/activities` is paginated, requires `DREEVE_API_KEY` token auth, and does not aggregate tiles or full heatmap route polylines. `/api/internal/*` remains the only practical data source.
+2. **Handle caching and revalidation entirely client-side:** Do not assume standard Dreeve servers will emit `ETag` or respond with `304 Not Modified`. The extension's background fetcher maintains an in-memory and `chrome.storage.session` TTL cache (20 minutes) and sends `If-None-Match` opportunistically, but clients must handle full downloads gracefully without expecting server-side revalidation guarantees.
+3. **Adapt to unversioned endpoint changes:** Because `/api/internal/*` is unversioned and may change or move across Dreeve releases without notice (as occurred in previous migrations from `/api/fragment/data/heatmap/routes` to `/api/heatmap/routes.json` to `/api/internal/heatmap/routes`), this extension owns updating endpoint paths and response normalization client-side whenever Dreeve reorganizes internal routes. Track: plugin [#53](https://github.com/Luen/dreeve-heatmap-plugin/issues/53).
+
 ## Setup and checks
 
 ```bash
