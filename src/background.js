@@ -1,3 +1,8 @@
+import {
+    SITE_ENABLED_STORAGE_KEY,
+    syncSiteContentScripts,
+} from './site-access.js'
+
 const FETCH_TIMEOUT_MS = 60000
 const CACHE_TTL_MS = 20 * 60 * 1000
 const CURRENT_ROUTES_PATH = '/api/internal/heatmap/routes'
@@ -219,4 +224,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     })()
 
     return true
+})
+
+// Custom sites (opted in via "Enable on this site") get a persistent content
+// script so the overlay is restored after a page reload, like built-in hosts.
+async function syncSiteContentScriptsFromStorage() {
+    try {
+        const stored = await chrome.storage.sync.get(SITE_ENABLED_STORAGE_KEY)
+        await syncSiteContentScripts(stored[SITE_ENABLED_STORAGE_KEY])
+    } catch (error) {
+        console.warn('Dreeve Heatmap: could not sync site scripts.', error)
+    }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+    void syncSiteContentScriptsFromStorage()
+})
+chrome.runtime.onStartup.addListener(() => {
+    void syncSiteContentScriptsFromStorage()
+})
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'sync' && changes[SITE_ENABLED_STORAGE_KEY]) {
+        void syncSiteContentScripts(
+            changes[SITE_ENABLED_STORAGE_KEY].newValue,
+        ).catch((error) => {
+            console.warn('Dreeve Heatmap: could not sync site scripts.', error)
+        })
+    }
 })

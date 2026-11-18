@@ -1,3 +1,9 @@
+import {
+    CONTENT_SCRIPT_FILES,
+    isBuiltInHost,
+    normalizeSiteEnabledMap,
+} from '../site-access.js'
+
 const STORAGE_KEYS = {
     endpoint: 'routesEndpoint',
     enabled: 'overlayEnabled',
@@ -9,12 +15,6 @@ const STORAGE_KEYS = {
     showTiles: 'showTiles',
     siteEnabledByOrigin: 'siteEnabledByOrigin',
 }
-
-const BUILT_IN_HOSTS = new Set([
-    'gpx.studio',
-    'studio.wanderstories.space',
-    'www.openstreetmap.org',
-])
 
 const SPORT_TYPE_OPTIONS = [
     { value: 'Ride', label: 'Ride' },
@@ -89,23 +89,6 @@ async function getSettings() {
     })
 }
 
-function normalizeSiteEnabledMap(raw) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-        return {}
-    }
-    const normalized = {}
-    for (const [origin, value] of Object.entries(raw)) {
-        if (
-            typeof origin === 'string' &&
-            origin &&
-            typeof value === 'boolean'
-        ) {
-            normalized[origin] = value
-        }
-    }
-    return normalized
-}
-
 function tabOrigin(url) {
     try {
         const parsed = new URL(url)
@@ -116,10 +99,6 @@ function tabOrigin(url) {
     } catch {
         return ''
     }
-}
-
-function isBuiltInHost(hostname) {
-    return BUILT_IN_HOSTS.has(String(hostname || ''))
 }
 
 function isSiteEnabledForOrigin(origin, siteEnabledByOrigin) {
@@ -345,7 +324,7 @@ async function ensureContentScript(tabId) {
     }
     await chrome.scripting.executeScript({
         target: { tabId, allFrames: true },
-        files: ['src/content-script.js'],
+        files: CONTENT_SCRIPT_FILES,
     })
 }
 

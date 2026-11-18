@@ -34,7 +34,7 @@ Plan your next ride on gpx.studio and instantly see which roads you've already c
 - 🔥 **Route heatmap** — draws all your Dreeve activity polylines on the page's map (on MapLibre / Mapbox hosts, routes appear from zoom 11; at overview zoom you see tiles)
 - 🟧 **Explorer tiles** — visited, cluster, max-cluster and max-square tiles, matching the Dreeve heatmap
 - 🎛️ **Independent layers** — toggle **Show routes** and **Show tiles** separately (both on by default)
-- 🚴 **Sport filters** — `Ride`, `Walk`, `Water`, `Winter`; applies to routes and tiles. Virtual activities (`VirtualRide`, `VirtualRun`) are skipped when a filter is active
+- 🚴 **Sport filters** — `Ride`, `Walk`, `Water`, `Winter`; applies to routes and tiles. Virtual activities (`VirtualRide`, `VirtualRun`) are always excluded
 - 🎨 **Styling** — shared colour and opacity for routes and tiles, plus route line width
 - 🔎 **Activity popups** — click a route to see activity details and links back to Dreeve
 - ⚡ **Fast** — cached payloads with `ETag` revalidation, route parsing in a Web Worker, viewport-filtered and zoom-simplified layers, and style changes that don't re-fetch geometry
@@ -104,7 +104,7 @@ Works in Chrome and other Chromium-based browsers (Edge, Brave, Arc, …).
 2. In the popup, tick **Enable on this site**. The popup checks the page for a map and warns you if it can't find one.
 3. Click **Enable**.
 
-On these sites the overlay is not restored automatically after a page reload. Open the popup and click **Disable**, then **Enable**, to draw it again. Untick **Enable on this site** to stop using the extension on a host, including the built-in ones.
+Once a site is enabled, the overlay comes back automatically when you reload or revisit it, just like on the built-in hosts. Untick **Enable on this site** to stop using the extension on a host, including the built-in ones.
 
 ### Style examples
 

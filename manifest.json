@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "Dreeve Heatmap Plugin",
     "description": "Overlay self-hosted Dreeve routes on gpx.studio, Wanderstories, and OpenStreetMap iD editor.",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "action": {
         "default_popup": "src/popup/popup.html",
         "default_title": "Dreeve Heatmap Plugin"
@@ -34,12 +34,12 @@
                 "http://studio.wanderstories.space/*",
                 "https://studio.wanderstories.space/*"
             ],
-            "js": ["src/content-script.js"],
+            "js": ["src/route-normalize.js", "src/content-script.js"],
             "run_at": "document_idle"
         },
         {
             "matches": ["*://www.openstreetmap.org/id*"],
-            "js": ["src/content-script.js"],
+            "js": ["src/route-normalize.js", "src/content-script.js"],
             "run_at": "document_end",
             "all_frames": true
         }
@@ -54,7 +54,10 @@
             "matches": ["*://www.openstreetmap.org/*"]
         },
         {
-            "resources": ["src/normalize-routes-worker.js"],
+            "resources": [
+                "src/route-normalize.js",
+                "src/normalize-routes-worker.js"
+            ],
             "matches": ["<all_urls>"]
         }
     ]

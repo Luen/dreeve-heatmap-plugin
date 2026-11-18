@@ -104,38 +104,7 @@
     const BRIDGE_TIMEOUT_MS = 7000
     const BRIDGE_TIMEOUT_ID_MS = 20000
     const NORMALIZE_CHUNK_SIZE = 40
-    const EXCLUDED_SPORT_TYPES = new Set(['VirtualRide', 'VirtualRun'])
-    const SPORT_CATEGORY_MAP = {
-        Ride: new Set([
-            'Ride',
-            'EBikeRide',
-            'GravelRide',
-            'MountainBikeRide',
-            'Handcycle',
-            'Velomobile',
-        ]),
-        Walk: new Set(['Walk', 'Hike', 'Run', 'TrailRun']),
-        Water: new Set([
-            'Swim',
-            'OpenWaterSwim',
-            'Kayaking',
-            'Canoeing',
-            'Rowing',
-            'StandUpPaddling',
-            'Surfing',
-            'Kitesurf',
-            'Windsurf',
-            'Sail',
-        ]),
-        Winter: new Set([
-            'AlpineSki',
-            'BackcountrySki',
-            'NordicSki',
-            'Snowboard',
-            'Snowshoe',
-            'IceSkate',
-        ]),
-    }
+    const RouteNormalize = globalThis.DreeveRouteNormalize
     let bridgeInjected = false
     /** @type {Promise<Worker | null> | null} */
     let normalizeWorkerPromise = null
@@ -143,6 +112,11 @@
     /** @type {Map<string, { resolve: (routes: unknown[]) => void, reject: (error: Error) => void, timer: ReturnType<typeof setTimeout> }>} */
     const pendingNormalizeRequests = new Map()
     const NORMALIZE_WORKER_TIMEOUT_MS = 60000
+    // Shared normalize logic first, then the worker's message handler.
+    const NORMALIZE_WORKER_SOURCES = [
+        'src/route-normalize.js',
+        'src/normalize-routes-worker.js',
+    ]
 
     function isOsmIdEditorPage() {
         try {
@@ -166,66 +140,10 @@
         return isOsmIdEditorPage() ? BRIDGE_TIMEOUT_ID_MS : BRIDGE_TIMEOUT_MS
     }
 
-    function getCategoryForSportType(sportType) {
-        const normalizedType = String(sportType || '').trim()
-        for (const [category, mappedTypes] of Object.entries(
-            SPORT_CATEGORY_MAP,
-        )) {
-            if (mappedTypes.has(normalizedType)) {
-                return category
-            }
-        }
-        return ''
-    }
-
-    function isSportTypeInSelectedCategories(sportType, selectedCategories) {
-        const normalizedType = String(sportType || '').trim()
-        if (!normalizedType) {
-            return false
-        }
-
-        const directCategory = getCategoryForSportType(normalizedType)
-        if (directCategory && selectedCategories.has(directCategory)) {
-            return true
-        }
-
-        // Dev-friendly fallback logic for evolving Strava ride variants:
-        // if user selected Ride, include any non-virtual *Ride type.
-        if (
-            selectedCategories.has('Ride') &&
-            /Ride$/i.test(normalizedType) &&
-            !EXCLUDED_SPORT_TYPES.has(normalizedType)
-        ) {
-            return true
-        }
-
-        return false
-    }
-
-    function parseSelectedCategories(rawValue) {
-        const validCategories = new Set(Object.keys(SPORT_CATEGORY_MAP))
-        const selected = new Set()
-
-        if (!Array.isArray(rawValue)) {
-            return selected
-        }
-
-        for (const value of rawValue) {
-            const normalized = String(value).trim()
-            if (!normalized) {
-                continue
-            }
-
-            if (validCategories.has(normalized)) {
-                selected.add(normalized)
-            }
-        }
-
-        return selected
-    }
-
     function sportTypesKey(rawValue) {
-        return [...parseSelectedCategories(rawValue)].sort().join(',')
+        return [...RouteNormalize.parseSelectedCategories(rawValue)]
+            .sort()
+            .join(',')
     }
 
     function stylesEqual(a, b) {
@@ -260,41 +178,6 @@
         return { lineColor, lineOpacity, lineWidth }
     }
 
-    function buildStravaActivityUrl(activityId) {
-        const raw = String(activityId || '').trim()
-        const match = raw.match(/(\d+)/)
-        if (!match) {
-            return ''
-        }
-        return `https://www.strava.com/activities/${match[1]}`
-    }
-
-    function resolveActivityUrl(activityUrl, endpoint) {
-        const raw = String(activityUrl || '').trim()
-        if (!raw) {
-            return ''
-        }
-
-        try {
-            const endpointUrl = new URL(endpoint)
-            // Legacy: /activity/activity-123.html
-            // Current Dreeve: /api/fragment/page/activity/activity-123
-            const fragmentMatch = raw.match(
-                /(?:^|\/)api\/fragment\/page\/activity\/([^/?#]+)/i,
-            )
-            if (fragmentMatch) {
-                return `${endpointUrl.origin}/activities#/api/fragment/page/activity/${fragmentMatch[1]}`
-            }
-            if (raw.includes('/activity/')) {
-                const activityPath = raw.startsWith('/') ? raw : `/${raw}`
-                return `${endpointUrl.origin}/activities#${activityPath}`
-            }
-            return new URL(raw, endpoint).toString()
-        } catch {
-            return ''
-        }
-    }
-
     function yieldToMain() {
         return new Promise((resolve) => {
             setTimeout(resolve, 0)
@@ -323,15 +206,17 @@
      * blob: workers fall back to main-thread normalization.
      */
     async function createNormalizeWorker() {
-        const response = await fetch(
-            chrome.runtime.getURL('src/normalize-routes-worker.js'),
+        const sources = await Promise.all(
+            NORMALIZE_WORKER_SOURCES.map(async (path) => {
+                const response = await fetch(chrome.runtime.getURL(path))
+                if (!response.ok) {
+                    throw new Error(`Worker source HTTP ${response.status}`)
+                }
+                return response.text()
+            }),
         )
-        if (!response.ok) {
-            throw new Error(`Worker source HTTP ${response.status}`)
-        }
-        const source = await response.text()
         const blobUrl = URL.createObjectURL(
-            new Blob([source], { type: 'text/javascript' }),
+            new Blob([sources.join('\n;\n')], { type: 'text/javascript' }),
         )
         const worker = new Worker(blobUrl)
         worker.addEventListener('message', (event) => {
@@ -404,78 +289,24 @@
      * Yields periodically so large payloads do not freeze the content script.
      */
     async function normalizeRoutesOnMainThread(payload, filters = {}) {
-        if (!Array.isArray(payload)) {
-            throw new Error('Expected routes payload to be an array.')
-        }
-
-        const selectedCategories = parseSelectedCategories(filters.sportTypes)
-        const shouldFilterByCategory = selectedCategories.size > 0
-        const allCategories = Object.keys(SPORT_CATEGORY_MAP)
-        const allCategoriesSelected = allCategories.every((category) =>
-            selectedCategories.has(category),
+        RouteNormalize.assertRoutesPayload(payload)
+        const includeSportType = RouteNormalize.createSportTypeFilter(
+            filters.sportTypes,
         )
-        const applyCategoryFilter =
-            shouldFilterByCategory && !allCategoriesSelected
-
         const routes = []
         for (let index = 0; index < payload.length; index += 1) {
             if (index > 0 && index % NORMALIZE_CHUNK_SIZE === 0) {
                 await yieldToMain()
             }
-
-            const item = payload[index]
-            if (!item || !Array.isArray(item.coordinates)) {
-                continue
-            }
-
-            const sportType = String(item?.filterables?.sportType || '').trim()
-            if (applyCategoryFilter && EXCLUDED_SPORT_TYPES.has(sportType)) {
-                continue
-            }
-            if (
-                applyCategoryFilter &&
-                !isSportTypeInSelectedCategories(sportType, selectedCategories)
-            ) {
-                continue
-            }
-
-            const coordinates = item.coordinates
-            const points = []
-            for (let i = 0; i < coordinates.length; i += 1) {
-                const pair = coordinates[i]
-                if (
-                    !Array.isArray(pair) ||
-                    pair.length < 2 ||
-                    !Number.isFinite(pair[0]) ||
-                    !Number.isFinite(pair[1])
-                ) {
-                    continue
-                }
-                // API is [lat, lng]; emit GeoJSON [lng, lat] once.
-                points.push([pair[1], pair[0]])
-            }
-
-            if (points.length >= 2) {
-                const activityId = String(item.id || '').trim()
-                routes.push({
-                    id: activityId,
-                    points,
-                    metadata: {
-                        activityId,
-                        name: String(item.name || '').trim(),
-                        startDate: String(item.startDate || '').trim(),
-                        distance: String(item.distance || '').trim(),
-                        sportType,
-                        activityUrl: resolveActivityUrl(
-                            item.activityUrl,
-                            filters.endpoint,
-                        ),
-                        stravaUrl: buildStravaActivityUrl(activityId),
-                    },
-                })
+            const route = RouteNormalize.normalizeRouteItem(
+                payload[index],
+                includeSportType,
+                filters.endpoint,
+            )
+            if (route) {
+                routes.push(route)
             }
         }
-
         return routes
     }
 
